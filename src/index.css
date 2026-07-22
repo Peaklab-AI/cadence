@@ -1,0 +1,21 @@
+@import "@fontsource/inter/300.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  background: transparent;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  @apply text-slate-900 antialiased selection:bg-brand-light/30 selection:text-brand-dark;
+}
