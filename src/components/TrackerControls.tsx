@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { History, Pause, Play, Plus } from "lucide-react";
+import { History, Pause, Play, Plus, Settings } from "lucide-react";
 import { formatElapsed } from "../lib/time";
 import { formatCurrency } from "../lib/currency";
 import type { Project, Status } from "../types";
@@ -14,6 +14,7 @@ interface Props {
   onPause: () => void;
   onOpenHistory: () => void;
   onNewProject: () => void;
+  onOpenSettings: () => void;
   /** The project actually being tracked (not just armed to start), used
    * only to show a subtle live earnings figure for the current session. */
   activeProject: Project | null;
@@ -34,6 +35,7 @@ export function TrackerControls({
   onPause,
   onOpenHistory,
   onNewProject,
+  onOpenSettings,
   activeProject,
 }: Props) {
   const isTracking = status === "tracking" || status === "promptPending";
@@ -55,7 +57,7 @@ export function TrackerControls({
   // down, not a continuously ticking fractional amount — so this only
   // changes once an hour, not every second.
   let liveEarnings: string | null = null;
-  if (isTracking && activeProject?.rate != null && startedAt) {
+  if (isTracking && activeProject?.rate && startedAt) {
     const amount =
       activeProject.interval === "hourly"
         ? activeProject.rate * Math.floor((now.getTime() - new Date(startedAt).getTime()) / 3_600_000)
@@ -94,6 +96,14 @@ export function TrackerControls({
             aria-label="History"
           >
             <History size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            aria-label="Settings"
+          >
+            <Settings size={16} />
           </button>
         </div>
       </div>

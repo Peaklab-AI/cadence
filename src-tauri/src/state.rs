@@ -1,5 +1,6 @@
 use crate::models::{AppData, Interval};
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -51,13 +52,23 @@ impl Default for TrackingState {
 pub struct AppState {
     pub data: Mutex<AppData>,
     pub tracking: Mutex<TrackingState>,
+    /// The directory `cadence-data.json` is currently written to, resolved
+    /// once at startup and updated only by `set_data_directory`. Every save
+    /// for the rest of the process uses this cached value rather than
+    /// re-resolving the pointer config on every call — otherwise a custom
+    /// folder that goes briefly unreachable (unmounted drive, dropped sync
+    /// folder) would cause saves to silently redirect to the default
+    /// location and then flip back once the folder returns, orphaning
+    /// whatever was written during the gap.
+    pub data_dir: Mutex<PathBuf>,
 }
 
 impl AppState {
-    pub fn new(data: AppData) -> Self {
+    pub fn new(data: AppData, data_dir: PathBuf) -> Self {
         AppState {
             data: Mutex::new(data),
             tracking: Mutex::new(TrackingState::default()),
+            data_dir: Mutex::new(data_dir),
         }
     }
 }

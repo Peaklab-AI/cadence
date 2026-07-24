@@ -118,6 +118,7 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
                   <p className="mt-0.5 truncate text-xs text-slate-400">
                     {logTime(entryStart)} – {logTime(entryEnd)}
                   </p>
+                  {entry.note && <p className="mt-0.5 truncate text-xs text-slate-500">{entry.note}</p>}
                 </div>
                 <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
                   {formatDuration(entry.durationSeconds)}

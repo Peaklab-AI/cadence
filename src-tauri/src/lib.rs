@@ -1,4 +1,5 @@
 mod commands;
+mod config;
 mod models;
 mod prompt;
 mod state;
@@ -13,10 +14,12 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            let data = storage::load(&handle).unwrap_or_default();
-            app.manage(AppState::new(data));
+            let data_dir = storage::resolve_effective_dir(&handle).expect("failed to resolve app data directory");
+            let data = storage::load_from_dir(&data_dir).unwrap_or_default();
+            app.manage(AppState::new(data, data_dir));
 
             // Menu-bar-only app: no Dock icon / Cmd+Tab entry on macOS.
             #[cfg(target_os = "macos")]
@@ -77,6 +80,9 @@ pub fn run() {
             commands::respond_to_prompt,
             commands::confirm_leave_tracking_off,
             commands::cancel_leave_tracking_off,
+            commands::get_storage_settings,
+            commands::check_data_folder,
+            commands::set_data_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,10 +10,12 @@ import { ProjectSelector } from "./components/ProjectSelector";
 import { ProjectForm } from "./components/ProjectForm";
 import { SwitchProjectScreen } from "./components/SwitchProjectScreen";
 import { LeaveOffScreen } from "./components/LeaveOffScreen";
+import { AddNoteScreen } from "./components/AddNoteScreen";
 import { TrackerControls } from "./components/TrackerControls";
 import { ConfirmPrompt } from "./components/ConfirmPrompt";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ProjectLogScreen } from "./components/ProjectLogScreen";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { TimeEntryForm } from "./components/TimeEntryForm";
 import { cancelLeaveTrackingOff, confirmLeaveTrackingOff, pauseTracking, startTracking } from "./lib/tauriCommands";
 import { toErrorMessage } from "./lib/errors";
@@ -23,9 +25,11 @@ import type { Project, TimeEntry } from "./types";
 type Screen =
   | { kind: "tracker" }
   | { kind: "history" }
+  | { kind: "settings" }
   | { kind: "editProject"; project: Project | null }
   | { kind: "switchProject"; project: Project }
   | { kind: "leaveOff" }
+  | { kind: "addNote" }
   | { kind: "projectLog"; project: Project; anchor: Date }
   | {
       kind: "editTimeEntry";
@@ -51,12 +55,16 @@ function screenTitle(screen: Screen): string {
       return "";
     case "history":
       return "History";
+    case "settings":
+      return "Settings";
     case "editProject":
       return screen.project ? "Edit project" : "New project";
     case "switchProject":
       return "Switch project";
     case "leaveOff":
       return "Leave tracking off?";
+    case "addNote":
+      return "Add a note?";
     case "projectLog":
       return "Project log";
     case "editTimeEntry":
@@ -236,13 +244,9 @@ function MainView() {
                     setActionError(toErrorMessage(err));
                   }
                 }}
-                onPause={async () => {
+                onPause={() => {
                   setActionError(null);
-                  try {
-                    await pauseTracking();
-                  } catch (err) {
-                    setActionError(toErrorMessage(err));
-                  }
+                  setScreen({ kind: "addNote" });
                 }}
                 onOpenHistory={() => {
                   setActionError(null);
@@ -251,6 +255,10 @@ function MainView() {
                 onNewProject={() => {
                   setActionError(null);
                   setScreen({ kind: "editProject", project: null });
+                }}
+                onOpenSettings={() => {
+                  setActionError(null);
+                  setScreen({ kind: "settings" });
                 }}
                 activeProject={activeProject}
               />
@@ -288,6 +296,18 @@ function MainView() {
                 projects={snapshot.projects}
                 onOpenLog={(project, anchor) => setScreen({ kind: "projectLog", project, anchor })}
               />
+            </motion.div>
+          )}
+
+          {screen.kind === "settings" && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+            >
+              <SettingsScreen />
             </motion.div>
           )}
 
@@ -404,6 +424,37 @@ function MainView() {
               <LeaveOffScreen
                 onConfirm={() => {
                   confirmLeaveTrackingOff();
+                  goToTracker();
+                }}
+              />
+            </motion.div>
+          )}
+
+          {screen.kind === "addNote" && (
+            <motion.div
+              key="addNote"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+            >
+              <AddNoteScreen
+                onSkip={async () => {
+                  setActionError(null);
+                  try {
+                    await pauseTracking();
+                  } catch (err) {
+                    setActionError(toErrorMessage(err));
+                  }
+                  goToTracker();
+                }}
+                onSave={async (note) => {
+                  setActionError(null);
+                  try {
+                    await pauseTracking(note.trim() || null);
+                  } catch (err) {
+                    setActionError(toErrorMessage(err));
+                  }
                   goToTracker();
                 }}
               />

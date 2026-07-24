@@ -38,6 +38,10 @@ pub struct TimeEntry {
     pub started_at: String,
     pub ended_at: Option<String>,
     pub duration_seconds: i64,
+    /// Optional free-text note about what the session was for, set (or left
+    /// blank) when the session is closed.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

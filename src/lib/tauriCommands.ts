@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSnapshot, BilledPeriod, Client, Interval, Project, TimeEntry } from "../types";
+import type { AppSnapshot, BilledPeriod, Client, FolderCheck, Interval, Project, StorageSettings, TimeEntry } from "../types";
 
 export function getState(): Promise<AppSnapshot> {
   return invoke("get_state");
@@ -43,8 +43,8 @@ export function startTracking(clientId: string, projectId: string): Promise<void
   return invoke("start_tracking", { clientId, projectId });
 }
 
-export function pauseTracking(): Promise<void> {
-  return invoke("pause_tracking");
+export function pauseTracking(note?: string | null): Promise<void> {
+  return invoke("pause_tracking", { note: note ?? null });
 }
 
 export function updateProject(
@@ -84,8 +84,9 @@ export function updateTimeEntry(
   projectId: string,
   startedAt: string,
   endedAt: string,
+  note: string | null,
 ): Promise<TimeEntry> {
-  return invoke("update_time_entry", { entryId, clientId, projectId, startedAt, endedAt });
+  return invoke("update_time_entry", { entryId, clientId, projectId, startedAt, endedAt, note });
 }
 
 export function deleteTimeEntry(entryId: string): Promise<void> {
@@ -97,6 +98,19 @@ export function addManualTimeEntry(
   projectId: string,
   startedAt: string,
   endedAt: string,
+  note: string | null,
 ): Promise<TimeEntry> {
-  return invoke("add_manual_time_entry", { clientId, projectId, startedAt, endedAt });
+  return invoke("add_manual_time_entry", { clientId, projectId, startedAt, endedAt, note });
+}
+
+export function getStorageSettings(): Promise<StorageSettings> {
+  return invoke("get_storage_settings");
+}
+
+export function checkDataFolder(dir: string): Promise<FolderCheck> {
+  return invoke("check_data_folder", { dir });
+}
+
+export function setDataDirectory(dir: string, overwrite: boolean): Promise<StorageSettings> {
+  return invoke("set_data_directory", { dir, overwrite });
 }

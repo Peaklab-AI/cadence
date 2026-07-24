@@ -196,6 +196,12 @@ function csvTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Quotes a free-text CSV cell, escaping embedded quotes, since notes may
+ * contain commas or other characters that would otherwise break columns. */
+function csvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
 /** Itemized CSV of every closed session for a project — proof of exact
  * working dates/times if a client asks for the full log behind a summary
  * figure. The in-progress entry (if any) is skipped, since it has no final
@@ -217,8 +223,8 @@ export function buildTimeLogCsv(
 
   const includeAmount = project.interval === "hourly" && project.rate !== null;
   const header = includeAmount
-    ? "Date,Start,End,Duration,Amount,Billed,Invoice"
-    : "Date,Start,End,Duration,Billed,Invoice";
+    ? "Date,Start,End,Duration,Amount,Billed,Invoice,Notes"
+    : "Date,Start,End,Duration,Billed,Invoice,Notes";
 
   const rows = closed.map((entry) => {
     const start = new Date(entry.startedAt);
@@ -231,7 +237,7 @@ export function buildTimeLogCsv(
       const billedHours = Math.floor(entry.durationSeconds / 3600);
       cells.push(((project.rate as number) * billedHours).toFixed(2));
     }
-    cells.push(billed ? "Yes" : "No", invoiceId ?? "");
+    cells.push(billed ? "Yes" : "No", csvCell(invoiceId ?? ""), csvCell(entry.note ?? ""));
     return cells.join(",");
   });
 

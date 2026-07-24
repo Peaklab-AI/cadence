@@ -7,6 +7,7 @@ import { INTERVAL_BADGE_META } from "../lib/intervalMeta";
 import { Select } from "./ui/Select";
 import { FieldLabel } from "./ui/FieldLabel";
 import { Button } from "./ui/Button";
+import { Textarea } from "./ui/Textarea";
 
 interface Props {
   entry: TimeEntry | null;
@@ -52,6 +53,7 @@ export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defa
   const [endTime, setEndTime] = useState(() =>
     entry?.endedAt ? toTimeInputValue(new Date(entry.endedAt)) : "17:00",
   );
+  const [note, setNote] = useState(entry?.note ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -83,10 +85,18 @@ export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defa
     setSubmitting(true);
     setError(null);
     try {
+      const trimmedNote = note.trim() || null;
       if (isEditing && entry) {
-        await updateTimeEntry(entry.id, project.clientId, project.id, startedAtIso as string, endedAtIso as string);
+        await updateTimeEntry(
+          entry.id,
+          project.clientId,
+          project.id,
+          startedAtIso as string,
+          endedAtIso as string,
+          trimmedNote,
+        );
       } else {
-        await addManualTimeEntry(project.clientId, project.id, startedAtIso as string, endedAtIso as string);
+        await addManualTimeEntry(project.clientId, project.id, startedAtIso as string, endedAtIso as string, trimmedNote);
       }
       onDone();
     } catch (err) {
@@ -148,6 +158,17 @@ export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defa
             className="block w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-base text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
+      </div>
+
+      <div>
+        <FieldLabel htmlFor="entry-note">Note</FieldLabel>
+        <Textarea
+          id="entry-note"
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.currentTarget.value)}
+          placeholder="What was this session for?"
+        />
       </div>
 
       {!rangeValid && (

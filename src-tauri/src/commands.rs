@@ -74,7 +74,7 @@ fn emit_state_changed(app: &AppHandle, state: &State<AppState>) {
 /// Ends whichever time entry is currently open (if any) and clears the
 /// active-entry pointer. Shared by pause and by "switch project" (which
 /// pauses the old entry before starting the new one).
-fn close_active_entry(app: &AppHandle, state: &State<AppState>) -> Result<(), String> {
+fn close_active_entry(app: &AppHandle, state: &State<AppState>, note: Option<String>) -> Result<(), String> {
     let now = Utc::now();
     let mut data = state.data.lock().unwrap();
     if let Some(entry) = data.time_entries.iter_mut().find(|e| e.ended_at.is_none()) {
@@ -83,13 +83,14 @@ fn close_active_entry(app: &AppHandle, state: &State<AppState>) -> Result<(), St
             .with_timezone(&Utc);
         entry.ended_at = Some(now.to_rfc3339());
         entry.duration_seconds = (now - started).num_seconds();
+        entry.note = note;
     }
     data.settings.active_entry_id = None;
     storage::save(app, &data)
 }
 
-fn pause_internal(app: &AppHandle, state: &State<AppState>) -> Result<(), String> {
-    close_active_entry(app, state)?;
+fn pause_internal(app: &AppHandle, state: &State<AppState>, note: Option<String>) -> Result<(), String> {
+    close_active_entry(app, state, note)?;
     let mut tracking = state.tracking.lock().unwrap();
     tracking.status = Status::Paused;
     tracking.active_entry_id = None;
@@ -188,6 +189,120 @@ pub fn save_text_file(app: AppHandle, filename: String, contents: String) -> Res
     let path = dir.join(sanitize_filename(&filename));
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSettings {
+    pub data_dir: String,
+    pub is_default: bool,
+    pub default_dir: String,
+    pub configured_dir_missing: bool,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderCheck {
+    pub writable: bool,
+    pub has_existing_data: bool,
+}
+
+fn build_storage_settings(app: &AppHandle, state: &AppState) -> Result<StorageSettings, String> {
+    let data_dir = state.data_dir.lock().unwrap().clone();
+    let default_dir = storage::default_data_dir(app)?;
+    Ok(StorageSettings {
+        is_default: data_dir == default_dir,
+        configured_dir_missing: storage::configured_dir_missing(app, &data_dir),
+        data_dir: data_dir.to_string_lossy().to_string(),
+        default_dir: default_dir.to_string_lossy().to_string(),
+        warning: None,
+    })
+}
+
+#[tauri::command]
+pub fn get_storage_settings(app: AppHandle, state: State<AppState>) -> Result<StorageSettings, String> {
+    build_storage_settings(&app, &state)
+}
+
+/// Called right after the native folder picker returns, before any writes
+/// happen, so the frontend can show a confirmation step for a destructive
+/// overwrite instead of `set_data_directory` surprising the user.
+#[tauri::command]
+pub fn check_data_folder(dir: String) -> Result<FolderCheck, String> {
+    let path = std::path::PathBuf::from(&dir);
+    if !path.is_dir() {
+        return Err("that folder doesn't exist".to_string());
+    }
+    let probe = path.join(".cadence-write-test");
+    let writable = std::fs::write(&probe, b"").is_ok();
+    if writable {
+        let _ = std::fs::remove_file(&probe);
+    }
+    Ok(FolderCheck {
+        writable,
+        has_existing_data: path.join("cadence-data.json").exists(),
+    })
+}
+
+/// Migrates the data file to `dir` and points the app at it going forward.
+/// Sequenced so a failure at any step never touches the original file:
+/// write the new file, verify it parses, only then flip the config
+/// pointer, only then best-effort delete the old file.
+#[tauri::command]
+pub fn set_data_directory(
+    app: AppHandle,
+    state: State<AppState>,
+    dir: String,
+    overwrite: bool,
+) -> Result<StorageSettings, String> {
+    let new_dir = std::path::PathBuf::from(&dir);
+    if !new_dir.is_dir() {
+        return Err("that folder doesn't exist".to_string());
+    }
+    let new_path = new_dir.join(storage::DATA_FILE_NAME);
+
+    // Snapshot the in-memory data and release `state.data` immediately —
+    // the disk I/O below (write, verify, config save) can be slow (e.g. a
+    // network drive) and must not block the background timer thread or any
+    // other command that needs this lock for the whole operation.
+    let (json, old_dir) = {
+        let data = state.data.lock().unwrap();
+        let json = serde_json::to_string_pretty(&*data).map_err(|e| e.to_string())?;
+        (json, state.data_dir.lock().unwrap().clone())
+    };
+    let old_path = old_dir.join(storage::DATA_FILE_NAME);
+
+    if new_path == old_path {
+        return build_storage_settings(&app, &state);
+    }
+    if new_path.exists() && !overwrite {
+        return Err("A Cadence data file already exists in that folder.".to_string());
+    }
+
+    storage::write_and_verify_data_file(&json, &new_path)?;
+
+    let cfg = crate::config::StorageConfig {
+        data_dir: Some(dir.clone()),
+    };
+    if let Err(e) = crate::config::save(&app, &cfg) {
+        let _ = std::fs::remove_file(&new_path);
+        return Err(e);
+    }
+
+    *state.data_dir.lock().unwrap() = new_dir;
+
+    let warning = if old_path.exists() {
+        std::fs::remove_file(&old_path)
+            .err()
+            .map(|e| format!("switched, but couldn't remove the old file: {e}"))
+    } else {
+        None
+    };
+
+    let mut settings = build_storage_settings(&app, &state)?;
+    settings.warning = warning;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -325,6 +440,7 @@ pub fn update_time_entry(
     project_id: String,
     started_at: String,
     ended_at: String,
+    note: Option<String>,
 ) -> Result<TimeEntry, String> {
     let duration_seconds = entry_duration_seconds(&started_at, &ended_at)?;
     let mut data = state.data.lock().unwrap();
@@ -341,6 +457,7 @@ pub fn update_time_entry(
     entry.started_at = started_at;
     entry.ended_at = Some(ended_at);
     entry.duration_seconds = duration_seconds;
+    entry.note = note;
     let updated = entry.clone();
     storage::save(&app, &data)?;
     Ok(updated)
@@ -375,6 +492,7 @@ pub fn add_manual_time_entry(
     project_id: String,
     started_at: String,
     ended_at: String,
+    note: Option<String>,
 ) -> Result<TimeEntry, String> {
     let duration_seconds = entry_duration_seconds(&started_at, &ended_at)?;
     let entry = TimeEntry {
@@ -384,6 +502,7 @@ pub fn add_manual_time_entry(
         started_at,
         ended_at: Some(ended_at),
         duration_seconds,
+        note,
     };
     let mut data = state.data.lock().unwrap();
     data.time_entries.push(entry.clone());
@@ -412,7 +531,7 @@ pub fn start_tracking(
     client_id: String,
     project_id: String,
 ) -> Result<(), String> {
-    close_active_entry(&app, &state)?;
+    close_active_entry(&app, &state, None)?;
 
     let now = Utc::now();
     let entry_id = Uuid::new_v4().to_string();
@@ -431,6 +550,7 @@ pub fn start_tracking(
             started_at: now.to_rfc3339(),
             ended_at: None,
             duration_seconds: 0,
+            note: None,
         });
         data.settings.active_entry_id = Some(entry_id.clone());
         storage::save(&app, &data)?;
@@ -454,8 +574,8 @@ pub fn start_tracking(
 }
 
 #[tauri::command]
-pub fn pause_tracking(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    pause_internal(&app, &state)?;
+pub fn pause_tracking(app: AppHandle, state: State<AppState>, note: Option<String>) -> Result<(), String> {
+    pause_internal(&app, &state, note)?;
     emit_state_changed(&app, &state);
     Ok(())
 }
@@ -471,7 +591,7 @@ pub fn respond_to_prompt(app: AppHandle, state: State<AppState>, still_working: 
         tracking.active_seconds_since_last_prompt = 0;
         tracking.prompt_deadline = None;
     } else {
-        pause_internal(&app, &state)?;
+        pause_internal(&app, &state, None)?;
     }
     prompt::close_prompt_window(&app);
     emit_state_changed(&app, &state);

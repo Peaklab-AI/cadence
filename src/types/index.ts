@@ -27,6 +27,8 @@ export interface TimeEntry {
   startedAt: string;
   endedAt: string | null;
   durationSeconds: number;
+  /** Optional free-text note about what the session was for. */
+  note: string | null;
 }
 
 /** Records that a project's tracked time for one calendar week has been
@@ -49,4 +51,17 @@ export interface AppSnapshot {
   promptDeadline: string | null;
   clients: Client[];
   projects: Project[];
+}
+
+export interface StorageSettings {
+  dataDir: string;
+  isDefault: boolean;
+  defaultDir: string;
+  configuredDirMissing: boolean;
+  warning: string | null;
+}
+
+export interface FolderCheck {
+  writable: boolean;
+  hasExistingData: boolean;
 }
