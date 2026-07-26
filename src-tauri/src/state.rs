@@ -61,6 +61,13 @@ pub struct AppState {
     /// location and then flip back once the folder returns, orphaning
     /// whatever was written during the gap.
     pub data_dir: Mutex<PathBuf>,
+    /// Held across the (potentially slow) disk write in `commands::save_data`
+    /// after `data`'s own guard has already been dropped, so concurrent
+    /// saves still commit to disk in the same order their mutations
+    /// happened — without this, two commands racing (e.g. a UI action and
+    /// the background timer thread's auto-pause) could mutate in order A→B
+    /// but land on disk as B→A.
+    pub save_order: Mutex<()>,
 }
 
 impl AppState {
@@ -69,6 +76,7 @@ impl AppState {
             data: Mutex::new(data),
             tracking: Mutex::new(TrackingState::default()),
             data_dir: Mutex::new(data_dir),
+            save_order: Mutex::new(()),
         }
     }
 }

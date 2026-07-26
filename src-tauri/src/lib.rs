@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod lock_ext;
 mod models;
 mod prompt;
 mod state;

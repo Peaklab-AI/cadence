@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Check, Download, FileText, Plus } from "lucide-react";
 import { listBilledPeriods, listTimeEntries, saveTextFile } from "../lib/tauriCommands";
 import { buildTimeLogCsv, formatDuration, weekEnd, weekStart, weekStartKey, weekLabel } from "../lib/history";
@@ -27,11 +27,29 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
   const [billedPeriods, setBilledPeriods] = useState<BilledPeriod[] | null>(null);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Distinct from `exportError` (which is scoped to the CSV export action)
+  // so a failed initial load surfaces its own message and Retry instead of
+  // leaving the list stuck on "Loading…" forever.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadData = useCallback(() => {
+    listTimeEntries()
+      .then((data) => {
+        setEntries(data);
+        setLoadError(null);
+      })
+      .catch((err) => setLoadError(toErrorMessage(err)));
+    listBilledPeriods()
+      .then((data) => {
+        setBilledPeriods(data);
+        setLoadError(null);
+      })
+      .catch((err) => setLoadError(toErrorMessage(err)));
+  }, []);
 
   useEffect(() => {
-    listTimeEntries().then(setEntries);
-    listBilledPeriods().then(setBilledPeriods);
-  }, []);
+    loadData();
+  }, [loadData]);
 
   const now = new Date();
   const start = weekStart(anchor);
@@ -89,7 +107,14 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
         </button>
       </div>
 
-      {entries === null ? (
+      {entries === null && loadError ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <p className="text-xs text-red-600">{loadError}</p>
+          <Button variant="outline" size="sm" onClick={loadData}>
+            Retry
+          </Button>
+        </div>
+      ) : entries === null ? (
         <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
       ) : closedEntries.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-10 text-center">

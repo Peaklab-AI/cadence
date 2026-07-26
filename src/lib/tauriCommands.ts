@@ -1,16 +1,51 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import type { AppSnapshot, BilledPeriod, Client, FolderCheck, Interval, Project, StorageSettings, TimeEntry } from "../types";
 
+export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
+
+/** Thrown when a Tauri command hasn't settled within `timeoutMs` — e.g. the
+ * backend is stuck holding a lock behind a slow/hung disk write to a
+ * network drive or dropped sync folder. Lets callers show a clear "this is
+ * taking too long" message instead of leaving the UI stuck indefinitely. */
+export class CommandTimeoutError extends Error {
+  constructor(
+    public readonly command: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`"${command}" is taking longer than expected (>${timeoutMs}ms)`);
+    this.name = "CommandTimeoutError";
+  }
+}
+
+/** Every exported command below goes through here instead of calling
+ * `invoke` directly, so a hung backend command surfaces as a rejected
+ * promise (a bounded wait) rather than one that never settles at all. */
+function call<T>(command: string, args?: InvokeArgs, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new CommandTimeoutError(command, timeoutMs)), timeoutMs);
+    invoke<T>(command, args).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export function getState(): Promise<AppSnapshot> {
-  return invoke("get_state");
+  return call("get_state");
 }
 
 export function listTimeEntries(): Promise<TimeEntry[]> {
-  return invoke("list_time_entries");
+  return call("list_time_entries");
 }
 
 export function listBilledPeriods(): Promise<BilledPeriod[]> {
-  return invoke("list_billed_periods");
+  return call("list_billed_periods");
 }
 
 export function markPeriodBilled(
@@ -18,15 +53,15 @@ export function markPeriodBilled(
   periodStart: string,
   invoiceId: string | null,
 ): Promise<BilledPeriod> {
-  return invoke("mark_period_billed", { projectId, periodStart, invoiceId });
+  return call("mark_period_billed", { projectId, periodStart, invoiceId });
 }
 
 export function unmarkPeriodBilled(projectId: string, periodStart: string): Promise<void> {
-  return invoke("unmark_period_billed", { projectId, periodStart });
+  return call("unmark_period_billed", { projectId, periodStart });
 }
 
 export function addClient(name: string): Promise<Client> {
-  return invoke("add_client", { name });
+  return call("add_client", { name });
 }
 
 export function addProject(
@@ -36,15 +71,15 @@ export function addProject(
   rate: number | null,
   currency: string | null,
 ): Promise<Project> {
-  return invoke("add_project", { clientId, name, interval, rate, currency });
+  return call("add_project", { clientId, name, interval, rate, currency });
 }
 
 export function startTracking(clientId: string, projectId: string): Promise<void> {
-  return invoke("start_tracking", { clientId, projectId });
+  return call("start_tracking", { clientId, projectId });
 }
 
 export function pauseTracking(note?: string | null): Promise<void> {
-  return invoke("pause_tracking", { note: note ?? null });
+  return call("pause_tracking", { note: note ?? null });
 }
 
 export function updateProject(
@@ -55,27 +90,27 @@ export function updateProject(
   rate: number | null,
   currency: string | null,
 ): Promise<Project> {
-  return invoke("update_project", { projectId, name, clientId, interval, rate, currency });
+  return call("update_project", { projectId, name, clientId, interval, rate, currency });
 }
 
 export function deleteProject(projectId: string): Promise<void> {
-  return invoke("delete_project", { projectId });
+  return call("delete_project", { projectId });
 }
 
 export function respondToPrompt(stillWorking: boolean): Promise<void> {
-  return invoke("respond_to_prompt", { stillWorking });
+  return call("respond_to_prompt", { stillWorking });
 }
 
 export function confirmLeaveTrackingOff(): Promise<void> {
-  return invoke("confirm_leave_tracking_off");
+  return call("confirm_leave_tracking_off");
 }
 
 export function cancelLeaveTrackingOff(): Promise<void> {
-  return invoke("cancel_leave_tracking_off");
+  return call("cancel_leave_tracking_off");
 }
 
 export function saveTextFile(filename: string, contents: string): Promise<string> {
-  return invoke("save_text_file", { filename, contents });
+  return call("save_text_file", { filename, contents });
 }
 
 export function updateTimeEntry(
@@ -86,11 +121,11 @@ export function updateTimeEntry(
   endedAt: string,
   note: string | null,
 ): Promise<TimeEntry> {
-  return invoke("update_time_entry", { entryId, clientId, projectId, startedAt, endedAt, note });
+  return call("update_time_entry", { entryId, clientId, projectId, startedAt, endedAt, note });
 }
 
 export function deleteTimeEntry(entryId: string): Promise<void> {
-  return invoke("delete_time_entry", { entryId });
+  return call("delete_time_entry", { entryId });
 }
 
 export function addManualTimeEntry(
@@ -100,17 +135,17 @@ export function addManualTimeEntry(
   endedAt: string,
   note: string | null,
 ): Promise<TimeEntry> {
-  return invoke("add_manual_time_entry", { clientId, projectId, startedAt, endedAt, note });
+  return call("add_manual_time_entry", { clientId, projectId, startedAt, endedAt, note });
 }
 
 export function getStorageSettings(): Promise<StorageSettings> {
-  return invoke("get_storage_settings");
+  return call("get_storage_settings");
 }
 
 export function checkDataFolder(dir: string): Promise<FolderCheck> {
-  return invoke("check_data_folder", { dir });
+  return call("check_data_folder", { dir });
 }
 
 export function setDataDirectory(dir: string, overwrite: boolean): Promise<StorageSettings> {
-  return invoke("set_data_directory", { dir, overwrite });
+  return call("set_data_directory", { dir, overwrite });
 }

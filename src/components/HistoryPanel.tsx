@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Check, Clock, X } from "lucide-react";
 import { listBilledPeriods, listTimeEntries, markPeriodBilled, unmarkPeriodBilled } from "../lib/tauriCommands";
 import { weekLabel, summarizeAllHistory, type ProjectPeriodHistory } from "../lib/history";
@@ -7,6 +7,7 @@ import { formatCurrency } from "../lib/currency";
 import { toErrorMessage } from "../lib/errors";
 import type { BilledPeriod, Client, Project, TimeEntry } from "../types";
 import { Badge } from "./ui/Badge";
+import { Button } from "./ui/Button";
 
 interface Props {
   clients: Client[];
@@ -21,11 +22,30 @@ export function HistoryPanel({ clients, projects, onOpenLog }: Props) {
   const [invoiceDraft, setInvoiceDraft] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  // Separate from `toggleError` (which is scoped to mark/unmark-billed
+  // actions and gets cleared the moment any of those runs) so a failed
+  // initial load doesn't get silently wiped before the user can see or
+  // retry it.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(() => {
+    listTimeEntries()
+      .then((data) => {
+        setEntries(data);
+        setLoadError(null);
+      })
+      .catch((err) => setLoadError(toErrorMessage(err)));
+    listBilledPeriods()
+      .then((data) => {
+        setBilledPeriods(data);
+        setLoadError(null);
+      })
+      .catch((err) => setLoadError(toErrorMessage(err)));
+  }, []);
 
   useEffect(() => {
-    listTimeEntries().then(setEntries);
-    listBilledPeriods().then(setBilledPeriods);
-  }, []);
+    loadHistory();
+  }, [loadHistory]);
 
   function openEditor(key: string, period: ProjectPeriodHistory) {
     setToggleError(null);
@@ -76,7 +96,14 @@ export function HistoryPanel({ clients, projects, onOpenLog }: Props) {
     <div className="space-y-4">
       {toggleError && <p className="text-center text-xs text-red-600">{toggleError}</p>}
 
-      {loading ? (
+      {loading && loadError ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <p className="text-xs text-red-600">{loadError}</p>
+          <Button variant="outline" size="sm" onClick={loadHistory}>
+            Retry
+          </Button>
+        </div>
+      ) : loading ? (
         <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
       ) : groups.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-10 text-center">

@@ -6,6 +6,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { TrackerProvider } from "./context/TrackerContext";
 import { useTrackerState } from "./hooks/useTrackerState";
+import { useTrackerLoadState } from "./hooks/useTrackerLoadState";
 import { ProjectSelector } from "./components/ProjectSelector";
 import { ProjectForm } from "./components/ProjectForm";
 import { SwitchProjectScreen } from "./components/SwitchProjectScreen";
@@ -17,6 +18,7 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { ProjectLogScreen } from "./components/ProjectLogScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { TimeEntryForm } from "./components/TimeEntryForm";
+import { Button } from "./components/ui/Button";
 import { cancelLeaveTrackingOff, confirmLeaveTrackingOff, pauseTracking, startTracking } from "./lib/tauriCommands";
 import { toErrorMessage } from "./lib/errors";
 import { weekEnd, weekStart } from "./lib/history";
@@ -89,6 +91,7 @@ function clampDateToPeriod(now: Date, anchor: Date): Date {
 
 function MainView() {
   const snapshot = useTrackerState();
+  const loadState = useTrackerLoadState();
   const [screen, setScreen] = useState<Screen>({ kind: "tracker" });
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -159,6 +162,17 @@ function MainView() {
   }
 
   if (!snapshot) {
+    if (loadState.status === "error") {
+      return (
+        <div className="flex h-screen flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl bg-white p-4 text-center">
+          <p className="text-sm text-slate-500">Something went wrong loading Cadence.</p>
+          <p className="text-xs text-red-600">{loadState.message}</p>
+          <Button variant="outline" size="sm" onClick={loadState.retry}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="flex h-screen items-center justify-center overflow-hidden rounded-2xl bg-white text-sm text-slate-400">
         Loading…

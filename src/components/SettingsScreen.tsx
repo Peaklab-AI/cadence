@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen } from "lucide-react";
 import { checkDataFolder, getStorageSettings, setDataDirectory } from "../lib/tauriCommands";
@@ -13,11 +13,18 @@ export function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadSettings = useCallback(() => {
     getStorageSettings()
-      .then(setSettings)
+      .then((data) => {
+        setSettings(data);
+        setError(null);
+      })
       .catch((err) => setError(toErrorMessage(err)));
   }, []);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   async function handleChooseFolder() {
     setError(null);
@@ -56,7 +63,18 @@ export function SettingsScreen() {
     }
   }
 
-  if (!settings) return <p className="py-8 text-center text-sm text-slate-400">Loading…</p>;
+  if (!settings) {
+    return error ? (
+      <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <p className="text-xs text-red-600">{error}</p>
+        <Button variant="outline" size="sm" onClick={loadSettings}>
+          Retry
+        </Button>
+      </div>
+    ) : (
+      <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">

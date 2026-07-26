@@ -40,11 +40,6 @@ function combineToIso(dateStr: string, timeStr: string): string | null {
 export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defaultDate, onDone }: Props) {
   const isEditing = entry !== null;
 
-  const [allEntries, setAllEntries] = useState<TimeEntry[] | null>(null);
-  useEffect(() => {
-    listTimeEntries().then(setAllEntries);
-  }, []);
-
   const [projectId, setProjectId] = useState(entry?.projectId ?? defaultProjectId);
   const [date, setDate] = useState(() => toDateInputValue(entry ? new Date(entry.startedAt) : defaultDate));
   const [startTime, setStartTime] = useState(() =>
@@ -57,6 +52,16 @@ export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defa
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const [allEntries, setAllEntries] = useState<TimeEntry[] | null>(null);
+  useEffect(() => {
+    // Non-blocking: this only feeds soft overlap-detection below, so a
+    // failure just surfaces in the shared `error` slot (the user's own next
+    // Save/Delete clears it) rather than needing its own retry UI.
+    listTimeEntries()
+      .then(setAllEntries)
+      .catch((err) => setError(toErrorMessage(err)));
+  }, []);
 
   const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
   const projectOptions = projects.map((p) => ({

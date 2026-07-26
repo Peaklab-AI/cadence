@@ -1,3 +1,4 @@
+use crate::lock_ext::LockOrRecover;
 use crate::models::AppData;
 use crate::state::AppState;
 use std::fs;
@@ -57,13 +58,17 @@ pub fn load_from_dir(dir: &Path) -> Result<AppData, String> {
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
-/// Always writes to `AppState::data_dir`'s current value, never a freshly
-/// re-resolved path — see that field's doc comment.
-pub fn save(app: &AppHandle, data: &AppData) -> Result<(), String> {
-    let dir = app.state::<AppState>().data_dir.lock().unwrap().clone();
+/// Persists an already-serialized snapshot. Callers serialize while still
+/// holding `state.data`'s guard (cheap, in-memory) and must drop that guard
+/// before calling this — the write inside can block indefinitely on a bad
+/// network/removable data_dir, and must never do so while any other command
+/// or the background timer thread is waiting on `state.data`. Always writes
+/// to `AppState::data_dir`'s current value, never a freshly re-resolved path
+/// — see that field's doc comment.
+pub fn save(app: &AppHandle, json: &str) -> Result<(), String> {
+    let dir = app.state::<AppState>().data_dir.lock_or_recover().clone();
     let path = dir.join(DATA_FILE_NAME);
-    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    atomic_write(&path, &json)
+    atomic_write(&path, json)
 }
 
 /// Writes `json` to `new_path` and verifies it parses back as `AppData`,

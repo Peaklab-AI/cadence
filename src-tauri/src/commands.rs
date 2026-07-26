@@ -1,3 +1,4 @@
+use crate::lock_ext::LockOrRecover;
 use crate::models::{AppData, BilledPeriod, Client, Interval, Project, TimeEntry};
 use crate::prompt;
 use crate::state::{AppState, Status, TrackingState};
@@ -22,8 +23,8 @@ pub struct AppSnapshot {
 }
 
 fn build_snapshot(state: &State<AppState>) -> AppSnapshot {
-    let tracking = state.tracking.lock().unwrap();
-    let data = state.data.lock().unwrap();
+    let tracking = state.tracking.lock_or_recover();
+    let data = state.data.lock_or_recover();
     AppSnapshot {
         status: tracking.status,
         active_client_id: tracking.active_client_id.clone(),
@@ -71,27 +72,53 @@ fn emit_state_changed(app: &AppHandle, state: &State<AppState>) {
     tray::refresh(app, state);
 }
 
+/// Runs `mutate` against the live data under `state.data`'s lock, producing
+/// `T`; serializes the (now-mutated) data to JSON while still holding that
+/// lock (cheap, in-memory, no I/O); then, still holding the lock, takes
+/// `state.save_order` before dropping `state.data`'s guard; only then calls
+/// `storage::save` (the slow part). This way a hung disk write blocks at
+/// most this one command — never `get_state`, the background timer thread,
+/// or any other command that only needs `state.data` — and `save_order`
+/// keeps concurrent saves landing on disk in the same order their
+/// mutations happened (see that field's doc comment in state.rs).
+fn save_data<T>(
+    app: &AppHandle,
+    state: &State<AppState>,
+    mutate: impl FnOnce(&mut AppData) -> Result<T, String>,
+) -> Result<T, String> {
+    let (json, result, _write_guard) = {
+        let mut data = state.data.lock_or_recover();
+        let result = mutate(&mut data)?;
+        let json = serde_json::to_string_pretty(&*data).map_err(|e| e.to_string())?;
+        let write_guard = state.save_order.lock_or_recover();
+        (json, result, write_guard)
+    };
+    storage::save(app, &json)?;
+    Ok(result)
+}
+
 /// Ends whichever time entry is currently open (if any) and clears the
 /// active-entry pointer. Shared by pause and by "switch project" (which
 /// pauses the old entry before starting the new one).
 fn close_active_entry(app: &AppHandle, state: &State<AppState>, note: Option<String>) -> Result<(), String> {
     let now = Utc::now();
-    let mut data = state.data.lock().unwrap();
-    if let Some(entry) = data.time_entries.iter_mut().find(|e| e.ended_at.is_none()) {
-        let started = chrono::DateTime::parse_from_rfc3339(&entry.started_at)
-            .map_err(|e| e.to_string())?
-            .with_timezone(&Utc);
-        entry.ended_at = Some(now.to_rfc3339());
-        entry.duration_seconds = (now - started).num_seconds();
-        entry.note = note;
-    }
-    data.settings.active_entry_id = None;
-    storage::save(app, &data)
+    save_data(app, state, |data| {
+        if let Some(entry) = data.time_entries.iter_mut().find(|e| e.ended_at.is_none()) {
+            let started = chrono::DateTime::parse_from_rfc3339(&entry.started_at)
+                .map_err(|e| e.to_string())?
+                .with_timezone(&Utc);
+            entry.ended_at = Some(now.to_rfc3339());
+            entry.duration_seconds = (now - started).num_seconds();
+            entry.note = note;
+        }
+        data.settings.active_entry_id = None;
+        Ok(())
+    })
 }
 
 fn pause_internal(app: &AppHandle, state: &State<AppState>, note: Option<String>) -> Result<(), String> {
     close_active_entry(app, state, note)?;
-    let mut tracking = state.tracking.lock().unwrap();
+    let mut tracking = state.tracking.lock_or_recover();
     tracking.status = Status::Paused;
     tracking.active_entry_id = None;
     tracking.started_at = None;
@@ -109,7 +136,7 @@ pub fn get_state(state: State<AppState>) -> AppSnapshot {
 /// not live-tracking state, so it doesn't need to live in Rust.
 #[tauri::command]
 pub fn list_time_entries(state: State<AppState>) -> Vec<crate::models::TimeEntry> {
-    state.data.lock().unwrap().time_entries.clone()
+    state.data.lock_or_recover().time_entries.clone()
 }
 
 /// Raw billed-period records for the History panel. Same "read-only
@@ -118,7 +145,7 @@ pub fn list_time_entries(state: State<AppState>) -> Vec<crate::models::TimeEntry
 /// `AppSnapshot`/`emit_state_changed`.
 #[tauri::command]
 pub fn list_billed_periods(state: State<AppState>) -> Vec<BilledPeriod> {
-    state.data.lock().unwrap().billed_periods.clone()
+    state.data.lock_or_recover().billed_periods.clone()
 }
 
 /// Marks a (project, week) as invoiced, with an optional invoice reference.
@@ -134,27 +161,25 @@ pub fn mark_period_billed(
     period_start: String,
     invoice_id: Option<String>,
 ) -> Result<BilledPeriod, String> {
-    let mut data = state.data.lock().unwrap();
-    if let Some(existing) = data
-        .billed_periods
-        .iter_mut()
-        .find(|b| b.project_id == project_id && b.period_start == period_start)
-    {
-        existing.invoice_id = invoice_id;
-        let updated = existing.clone();
-        storage::save(&app, &data)?;
-        return Ok(updated);
-    }
-    let record = BilledPeriod {
-        id: Uuid::new_v4().to_string(),
-        project_id,
-        period_start,
-        billed_at: Utc::now().to_rfc3339(),
-        invoice_id,
-    };
-    data.billed_periods.push(record.clone());
-    storage::save(&app, &data)?;
-    Ok(record)
+    save_data(&app, &state, |data| {
+        if let Some(existing) = data
+            .billed_periods
+            .iter_mut()
+            .find(|b| b.project_id == project_id && b.period_start == period_start)
+        {
+            existing.invoice_id = invoice_id;
+            return Ok(existing.clone());
+        }
+        let record = BilledPeriod {
+            id: Uuid::new_v4().to_string(),
+            project_id,
+            period_start,
+            billed_at: Utc::now().to_rfc3339(),
+            invoice_id,
+        };
+        data.billed_periods.push(record.clone());
+        Ok(record)
+    })
 }
 
 /// Reverses `mark_period_billed`. Idempotent — unmarking something that
@@ -166,9 +191,10 @@ pub fn unmark_period_billed(
     project_id: String,
     period_start: String,
 ) -> Result<(), String> {
-    let mut data = state.data.lock().unwrap();
-    data.billed_periods.retain(|b| !(b.project_id == project_id && b.period_start == period_start));
-    storage::save(&app, &data)
+    save_data(&app, &state, |data| {
+        data.billed_periods.retain(|b| !(b.project_id == project_id && b.period_start == period_start));
+        Ok(())
+    })
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -209,7 +235,7 @@ pub struct FolderCheck {
 }
 
 fn build_storage_settings(app: &AppHandle, state: &AppState) -> Result<StorageSettings, String> {
-    let data_dir = state.data_dir.lock().unwrap().clone();
+    let data_dir = state.data_dir.lock_or_recover().clone();
     let default_dir = storage::default_data_dir(app)?;
     Ok(StorageSettings {
         is_default: data_dir == default_dir,
@@ -267,9 +293,9 @@ pub fn set_data_directory(
     // network drive) and must not block the background timer thread or any
     // other command that needs this lock for the whole operation.
     let (json, old_dir) = {
-        let data = state.data.lock().unwrap();
+        let data = state.data.lock_or_recover();
         let json = serde_json::to_string_pretty(&*data).map_err(|e| e.to_string())?;
-        (json, state.data_dir.lock().unwrap().clone())
+        (json, state.data_dir.lock_or_recover().clone())
     };
     let old_path = old_dir.join(storage::DATA_FILE_NAME);
 
@@ -290,7 +316,7 @@ pub fn set_data_directory(
         return Err(e);
     }
 
-    *state.data_dir.lock().unwrap() = new_dir;
+    *state.data_dir.lock_or_recover() = new_dir;
 
     let warning = if old_path.exists() {
         std::fs::remove_file(&old_path)
@@ -312,11 +338,11 @@ pub fn add_client(app: AppHandle, state: State<AppState>, name: String) -> Resul
         name,
         created_at: Utc::now().to_rfc3339(),
     };
-    {
-        let mut data = state.data.lock().unwrap();
-        data.clients.push(client.clone());
-        storage::save(&app, &data)?;
-    }
+    let to_save = client.clone();
+    save_data(&app, &state, move |data| {
+        data.clients.push(to_save);
+        Ok(())
+    })?;
     emit_state_changed(&app, &state);
     Ok(client)
 }
@@ -340,11 +366,11 @@ pub fn add_project(
         rate,
         currency,
     };
-    {
-        let mut data = state.data.lock().unwrap();
-        data.projects.push(project.clone());
-        storage::save(&app, &data)?;
-    }
+    let to_save = project.clone();
+    save_data(&app, &state, move |data| {
+        data.projects.push(to_save);
+        Ok(())
+    })?;
     emit_state_changed(&app, &state);
     Ok(project)
 }
@@ -364,26 +390,25 @@ pub fn update_project(
     rate: Option<f64>,
     currency: Option<String>,
 ) -> Result<Project, String> {
-    let updated = {
-        let mut data = state.data.lock().unwrap();
+    let client_id_for_tracking = client_id.clone();
+    let project_id_for_tracking = project_id.clone();
+    let updated = save_data(&app, &state, move |data| {
         let project = data
             .projects
             .iter_mut()
             .find(|p| p.id == project_id)
             .ok_or_else(|| "project not found".to_string())?;
         project.name = name;
-        project.client_id = client_id.clone();
+        project.client_id = client_id;
         project.interval = interval;
         project.rate = rate;
         project.currency = currency;
-        let updated = project.clone();
-        storage::save(&app, &data)?;
-        updated
-    };
+        Ok(project.clone())
+    })?;
     {
-        let mut tracking = state.tracking.lock().unwrap();
-        if tracking.active_project_id.as_deref() == Some(project_id.as_str()) {
-            tracking.active_client_id = Some(client_id);
+        let mut tracking = state.tracking.lock_or_recover();
+        if tracking.active_project_id.as_deref() == Some(project_id_for_tracking.as_str()) {
+            tracking.active_client_id = Some(client_id_for_tracking);
             tracking.active_interval = interval;
         }
     }
@@ -402,11 +427,10 @@ pub fn update_project(
 #[tauri::command]
 pub fn delete_project(app: AppHandle, state: State<AppState>, project_id: String) -> Result<(), String> {
     let was_active = {
-        let tracking = state.tracking.lock().unwrap();
+        let tracking = state.tracking.lock_or_recover();
         tracking.active_project_id.as_deref() == Some(project_id.as_str())
     };
-    {
-        let mut data = state.data.lock().unwrap();
+    save_data(&app, &state, move |data| {
         if !data.projects.iter().any(|p| p.id == project_id) {
             return Err("project not found".to_string());
         }
@@ -416,10 +440,10 @@ pub fn delete_project(app: AppHandle, state: State<AppState>, project_id: String
         if was_active {
             data.settings.active_entry_id = None;
         }
-        storage::save(&app, &data)?;
-    }
+        Ok(())
+    })?;
     if was_active {
-        let mut tracking = state.tracking.lock().unwrap();
+        let mut tracking = state.tracking.lock_or_recover();
         *tracking = TrackingState::default();
     }
     emit_state_changed(&app, &state);
@@ -443,41 +467,41 @@ pub fn update_time_entry(
     note: Option<String>,
 ) -> Result<TimeEntry, String> {
     let duration_seconds = entry_duration_seconds(&started_at, &ended_at)?;
-    let mut data = state.data.lock().unwrap();
-    let entry = data
-        .time_entries
-        .iter_mut()
-        .find(|e| e.id == entry_id)
-        .ok_or_else(|| "time entry not found".to_string())?;
-    if entry.ended_at.is_none() {
-        return Err("can't edit the entry currently being tracked".to_string());
-    }
-    entry.client_id = client_id;
-    entry.project_id = project_id;
-    entry.started_at = started_at;
-    entry.ended_at = Some(ended_at);
-    entry.duration_seconds = duration_seconds;
-    entry.note = note;
-    let updated = entry.clone();
-    storage::save(&app, &data)?;
-    Ok(updated)
+    save_data(&app, &state, move |data| {
+        let entry = data
+            .time_entries
+            .iter_mut()
+            .find(|e| e.id == entry_id)
+            .ok_or_else(|| "time entry not found".to_string())?;
+        if entry.ended_at.is_none() {
+            return Err("can't edit the entry currently being tracked".to_string());
+        }
+        entry.client_id = client_id;
+        entry.project_id = project_id;
+        entry.started_at = started_at;
+        entry.ended_at = Some(ended_at);
+        entry.duration_seconds = duration_seconds;
+        entry.note = note;
+        Ok(entry.clone())
+    })
 }
 
 /// Removes a closed time entry entirely (e.g. it was logged by mistake).
 /// Same "not the open entry" guard as `update_time_entry`.
 #[tauri::command]
 pub fn delete_time_entry(app: AppHandle, state: State<AppState>, entry_id: String) -> Result<(), String> {
-    let mut data = state.data.lock().unwrap();
-    let entry = data
-        .time_entries
-        .iter()
-        .find(|e| e.id == entry_id)
-        .ok_or_else(|| "time entry not found".to_string())?;
-    if entry.ended_at.is_none() {
-        return Err("can't delete the entry currently being tracked".to_string());
-    }
-    data.time_entries.retain(|e| e.id != entry_id);
-    storage::save(&app, &data)
+    save_data(&app, &state, move |data| {
+        let entry = data
+            .time_entries
+            .iter()
+            .find(|e| e.id == entry_id)
+            .ok_or_else(|| "time entry not found".to_string())?;
+        if entry.ended_at.is_none() {
+            return Err("can't delete the entry currently being tracked".to_string());
+        }
+        data.time_entries.retain(|e| e.id != entry_id);
+        Ok(())
+    })
 }
 
 /// Adds a fully-closed time entry directly, for a session that was worked
@@ -504,9 +528,11 @@ pub fn add_manual_time_entry(
         duration_seconds,
         note,
     };
-    let mut data = state.data.lock().unwrap();
-    data.time_entries.push(entry.clone());
-    storage::save(&app, &data)?;
+    let to_save = entry.clone();
+    save_data(&app, &state, move |data| {
+        data.time_entries.push(to_save);
+        Ok(())
+    })?;
     Ok(entry)
 }
 
@@ -535,8 +561,10 @@ pub fn start_tracking(
 
     let now = Utc::now();
     let entry_id = Uuid::new_v4().to_string();
-    let interval = {
-        let mut data = state.data.lock().unwrap();
+    let entry_id_for_tracking = entry_id.clone();
+    let client_id_for_tracking = client_id.clone();
+    let project_id_for_tracking = project_id.clone();
+    let interval = save_data(&app, &state, move |data| {
         let interval = data
             .projects
             .iter()
@@ -545,19 +573,21 @@ pub fn start_tracking(
             .ok_or_else(|| "project not found".to_string())?;
         data.time_entries.push(TimeEntry {
             id: entry_id.clone(),
-            client_id: client_id.clone(),
-            project_id: project_id.clone(),
+            client_id,
+            project_id,
             started_at: now.to_rfc3339(),
             ended_at: None,
             duration_seconds: 0,
             note: None,
         });
-        data.settings.active_entry_id = Some(entry_id.clone());
-        storage::save(&app, &data)?;
-        interval
-    };
+        data.settings.active_entry_id = Some(entry_id);
+        Ok(interval)
+    })?;
+    let entry_id = entry_id_for_tracking;
+    let client_id = client_id_for_tracking;
+    let project_id = project_id_for_tracking;
     {
-        let mut tracking = state.tracking.lock().unwrap();
+        let mut tracking = state.tracking.lock_or_recover();
         tracking.status = Status::Tracking;
         tracking.active_client_id = Some(client_id);
         tracking.active_project_id = Some(project_id);
@@ -586,7 +616,7 @@ pub fn pause_tracking(app: AppHandle, state: State<AppState>, note: Option<Strin
 #[tauri::command]
 pub fn respond_to_prompt(app: AppHandle, state: State<AppState>, still_working: bool) -> Result<(), String> {
     if still_working {
-        let mut tracking = state.tracking.lock().unwrap();
+        let mut tracking = state.tracking.lock_or_recover();
         tracking.status = Status::Tracking;
         tracking.active_seconds_since_last_prompt = 0;
         tracking.prompt_deadline = None;

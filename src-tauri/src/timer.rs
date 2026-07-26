@@ -1,4 +1,5 @@
 use crate::commands;
+use crate::lock_ext::LockOrRecover;
 use crate::prompt;
 use crate::state::{AppState, Status};
 use crate::tray;
@@ -59,7 +60,7 @@ fn tick(app: &AppHandle, tick_count: u64) {
     let mut should_refresh_tray = false;
 
     {
-        let mut tracking = state.tracking.lock().unwrap();
+        let mut tracking = state.tracking.lock_or_recover();
         match tracking.status {
             Status::Tracking => {
                 tracking.active_seconds_since_last_prompt += 1;

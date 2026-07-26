@@ -1,3 +1,4 @@
+use crate::lock_ext::LockOrRecover;
 use crate::state::{AppState, Status};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -48,11 +49,11 @@ static LAST_LEAVE_OFF_NAG: Mutex<Option<Instant>> = Mutex::new(None);
 const LEAVE_OFF_NAG_COOLDOWN: Duration = Duration::from_secs(20 * 60);
 
 pub fn record_blur_hide() {
-    *LAST_BLUR_HIDE.lock().unwrap() = Some(Instant::now());
+    *LAST_BLUR_HIDE.lock_or_recover() = Some(Instant::now());
 }
 
 fn consume_recent_blur_hide() -> bool {
-    let mut last = LAST_BLUR_HIDE.lock().unwrap();
+    let mut last = LAST_BLUR_HIDE.lock_or_recover();
     if last.is_some_and(|t| t.elapsed() < BLUR_REOPEN_GUARD) {
         *last = None;
         true
@@ -62,12 +63,12 @@ fn consume_recent_blur_hide() -> bool {
 }
 
 fn should_nag_leave_off() -> bool {
-    let last = LAST_LEAVE_OFF_NAG.lock().unwrap();
+    let last = LAST_LEAVE_OFF_NAG.lock_or_recover();
     !last.is_some_and(|t| t.elapsed() < LEAVE_OFF_NAG_COOLDOWN)
 }
 
 fn mark_leave_off_nagged() {
-    *LAST_LEAVE_OFF_NAG.lock().unwrap() = Some(Instant::now());
+    *LAST_LEAVE_OFF_NAG.lock_or_recover() = Some(Instant::now());
 }
 
 /// Resets the cooldown so the next dismiss-while-idle nags again — called
@@ -75,7 +76,7 @@ fn mark_leave_off_nagged() {
 /// they're now paying attention and a future "forgot to track?" nag is
 /// relevant again.
 pub fn reset_leave_off_nag() {
-    *LAST_LEAVE_OFF_NAG.lock().unwrap() = None;
+    *LAST_LEAVE_OFF_NAG.lock_or_recover() = None;
 }
 
 /// Hides the main window, unless tracking is off and we haven't nagged
@@ -87,7 +88,7 @@ pub fn request_hide(app: &AppHandle) -> bool {
         return false;
     };
     let state = app.state::<AppState>();
-    let status = state.tracking.lock().unwrap().status;
+    let status = state.tracking.lock_or_recover().status;
     let is_tracking = matches!(status, Status::Tracking | Status::PromptPending);
 
     if is_tracking || !should_nag_leave_off() {
@@ -191,7 +192,7 @@ pub fn refresh(app: &AppHandle, _state: &State<AppState>) {
         return;
     };
     let state = app.state::<AppState>();
-    let status = state.tracking.lock().unwrap().status;
+    let status = state.tracking.lock_or_recover().status;
     let (icon_bytes, is_template) = if matches!(status, Status::Tracking | Status::PromptPending) {
         (ICON_ACTIVE_FRAMES[0], false)
     } else {
@@ -208,7 +209,7 @@ pub fn refresh(app: &AppHandle, _state: &State<AppState>) {
 /// anything actually changed.
 pub fn advance_frame(app: &AppHandle, frame: usize) {
     let state = app.state::<AppState>();
-    let status = state.tracking.lock().unwrap().status;
+    let status = state.tracking.lock_or_recover().status;
     if !matches!(status, Status::Tracking | Status::PromptPending) {
         return;
     }
