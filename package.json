@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
+    "check:links": "node scripts/verify-md-links.mjs",
     "tauri": "tauri",
     "dev:landing": "pnpm --filter @cadence/landing dev",
     "build:landing": "pnpm --filter @cadence/landing build"
