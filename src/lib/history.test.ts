@@ -7,6 +7,7 @@ import {
   weekLabel,
   formatDuration,
   summarizeAllHistory,
+  hideBilledPeriods,
   buildTimeLogCsv,
 } from "./history";
 import type { BilledPeriod, Client, Project, TimeEntry } from "../types";
@@ -213,7 +214,28 @@ describe("summarizeAllHistory", () => {
     expect(p2.periods[0].invoiceId).toBeNull();
   });
 
-  it("sorts projects by client name then project name, and omits projects with no entries", () => {
+  it("orders projects by their most recently logged period, most recent first", () => {
+    const clients = [makeClient({ id: "c1", name: "Acme" }), makeClient({ id: "c2", name: "Zulu" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", name: "Bravo" }),
+      makeProject({ id: "p2", clientId: "c1", name: "Alpha" }),
+      makeProject({ id: "p3", clientId: "c2", name: "Solo" }),
+      makeProject({ id: "p4", clientId: "c1", name: "NoEntries" }),
+    ];
+    const entries = [
+      // p1 was logged longest ago, p3 in between, p2 most recently — despite
+      // "Alpha" sorting first alphabetically, recency should win.
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-01-05T09:00:00" }),
+      makeEntry({ id: "e2", projectId: "p3", startedAt: "2026-04-06T09:00:00" }),
+      makeEntry({ id: "e3", projectId: "p2", startedAt: "2026-07-13T09:00:00" }),
+    ];
+
+    const result = summarizeAllHistory(entries, projects, clients, []);
+
+    expect(result.map((r) => r.projectId)).toEqual(["p2", "p3", "p1"]);
+  });
+
+  it("tie-breaks by client name then project name when projects share the same most recent period, and omits projects with no entries", () => {
     const clients = [makeClient({ id: "c1", name: "Acme" }), makeClient({ id: "c2", name: "Zulu" })];
     const projects = [
       makeProject({ id: "p1", clientId: "c1", name: "Bravo" }),
@@ -230,6 +252,55 @@ describe("summarizeAllHistory", () => {
     const result = summarizeAllHistory(entries, projects, clients, []);
 
     expect(result.map((r) => r.projectId)).toEqual(["p2", "p1", "p3"]);
+  });
+});
+
+describe("hideBilledPeriods", () => {
+  it("removes billed periods but keeps unbilled ones within the same project", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1" })];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00" }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-13T09:00:00" }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, billedPeriods);
+    const result = hideBilledPeriods(groups);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].periods).toHaveLength(1);
+    expect(result[0].periods[0].periodStartKey).toBe("2026-07-13");
+  });
+
+  it("drops a project entirely when every one of its periods is billed", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", name: "All billed" }), makeProject({ id: "p2", name: "Still open" })];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00" }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00" }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, billedPeriods);
+    const result = hideBilledPeriods(groups);
+
+    expect(result.map((r) => r.projectId)).toEqual(["p2"]);
+  });
+
+  it("is a no-op when nothing is billed", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1" })];
+    const entries = [makeEntry({ id: "e1", projectId: "p1" })];
+
+    const groups = summarizeAllHistory(entries, projects, clients, []);
+    const result = hideBilledPeriods(groups);
+
+    expect(result).toEqual(groups);
   });
 });
 

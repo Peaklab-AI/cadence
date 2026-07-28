@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
+import { Switch } from "./components/ui/Switch";
 import { TrackerProvider } from "./context/TrackerContext";
 import { useTrackerState } from "./hooks/useTrackerState";
 import { useTrackerLoadState } from "./hooks/useTrackerLoadState";
@@ -93,6 +94,7 @@ function MainView() {
   const snapshot = useTrackerState();
   const loadState = useTrackerLoadState();
   const [screen, setScreen] = useState<Screen>({ kind: "tracker" });
+  const [showBilled, setShowBilled] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -212,7 +214,7 @@ function MainView() {
   return (
     <div className="flex h-screen flex-col overflow-y-auto rounded-2xl bg-white p-4">
       {screen.kind !== "tracker" && (
-        <header ref={headerRef} className="mb-4 flex shrink-0 items-center">
+        <header ref={headerRef} className="mb-4 flex shrink-0 items-center justify-between">
           <button
             type="button"
             onClick={handleBack}
@@ -221,6 +223,9 @@ function MainView() {
             <ArrowLeft size={16} />
             {screenTitle(screen)}
           </button>
+          {screen.kind === "history" && (
+            <Switch checked={showBilled} onChange={setShowBilled} label="Show billed" />
+          )}
         </header>
       )}
 
@@ -309,6 +314,8 @@ function MainView() {
                 clients={snapshot.clients}
                 projects={snapshot.projects}
                 onOpenLog={(project, anchor) => setScreen({ kind: "projectLog", project, anchor })}
+                showBilled={showBilled}
+                onShowBilledChange={setShowBilled}
               />
             </motion.div>
           )}

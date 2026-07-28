@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-28T00:00:00Z",
+  "title": "Design System: Cadence",
+  "extensions": {
+    "colorMeta": {
+      "working-blue": {
+        "role": "primary",
+        "displayName": "Working Blue",
+        "canonical": "#2563EB",
+        "tonalRamp": ["#1E3A8A", "#1E40AF", "#1D4ED8", "#2563EB", "#3B82F6", "#60A5FA", "#93C5FD", "#EFF6FF"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#0F172A",
+        "tonalRamp": ["#0F172A", "#334155", "#475569", "#64748B", "#94A3B8", "#CBD5E1", "#E2E8F0", "#F8FAFC"]
+      },
+      "alert-red": {
+        "role": "error",
+        "displayName": "Alert Red",
+        "canonical": "#EF4444",
+        "tonalRamp": ["#7F1D1D", "#991B1B", "#B91C1C", "#DC2626", "#EF4444", "#F87171", "#FCA5A5", "#FEF2F2"]
+      },
+      "caution-amber": {
+        "role": "warning",
+        "displayName": "Caution Amber",
+        "canonical": "#D97706",
+        "tonalRamp": ["#78350F", "#92400E", "#B45309", "#D97706", "#F59E0B", "#FBBF24", "#FDE68A", "#FFFBEB"]
+      },
+      "daily-violet": {
+        "role": "identity",
+        "displayName": "Daily Violet",
+        "canonical": "#6D28D9",
+        "tonalRamp": ["#4C1D95", "#5B21B6", "#6D28D9", "#7C3AED", "#8B5CF6", "#A78BFA", "#DDD6FE", "#F5F3FF"]
+      },
+      "weekly-emerald": {
+        "role": "identity",
+        "displayName": "Weekly Emerald",
+        "canonical": "#047857",
+        "tonalRamp": ["#064E3B", "#065F46", "#047857", "#059669", "#10B981", "#34D399", "#A7F3D0", "#ECFDF5"]
+      },
+      "hourly-blue": {
+        "role": "identity",
+        "displayName": "Hourly Blue",
+        "canonical": "#1D4ED8",
+        "tonalRamp": ["#1E3A8A", "#1E40AF", "#1D4ED8", "#2563EB", "#3B82F6", "#60A5FA", "#BFDBFE", "#EFF6FF"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The live elapsed-time clock and the check-in countdown numeral only — the one loud moment in the system." },
+      "title": { "displayName": "Title", "purpose": "Short confirmation headings, e.g. 'Still working on this?'" },
+      "body": { "displayName": "Body", "purpose": "The default UI text: labels, project names, buttons, list rows." },
+      "label": { "displayName": "Label", "purpose": "Metadata and secondary captions: client names, timestamps, helper text." }
+    },
+    "shadows": [
+      { "name": "floating-overlay", "value": "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)", "purpose": "The Select dropdown panel — the only genuinely floating surface in the system." },
+      { "name": "selected-tab-lift", "value": "0 1px 2px 0 rgba(0,0,0,0.05)", "purpose": "A one-step lift on the active SegmentedControl option." },
+      { "name": "cta-glow", "value": "0 10px 15px -3px rgba(37,99,235,0.25)", "purpose": "Colored glow on the Start button only when armed and ready to press." }
+    ],
+    "motion": [
+      { "name": "press-scale", "value": "whileHover scale(1.03), whileTap scale(0.97)", "purpose": "Shared press feedback on every button and the circular tracker control." },
+      { "name": "screen-transition", "value": "opacity 0→1, y 4px→0, 150ms", "purpose": "AnimatePresence cross-fade between screens; exit reverses to y -4px." },
+      { "name": "badge-mount", "value": "opacity 0→1, scale 0.85→1, 150ms", "purpose": "Badge pop-in on mount." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one strong call-to-action style in the system; used for the single primary action on a screen.",
+      "html": "<button class=\"ds-btn-primary\">Start</button>",
+      "css": ".ds-btn-primary{background:#2563EB;color:#fff;font-family:Inter,sans-serif;font-weight:500;font-size:14px;padding:10px 24px;border-radius:9999px;border:2px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:background-color 0.2s,transform 0.15s;}.ds-btn-primary:hover{background:#1E40AF;transform:scale(1.03);}.ds-btn-primary:active{transform:scale(0.97);}.ds-btn-primary:focus-visible{outline:2px solid #2563EB;outline-offset:2px;}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action style — cancel, retry, and other non-primary actions.",
+      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
+      "css": ".ds-btn-outline{background:transparent;color:#2563EB;font-family:Inter,sans-serif;font-weight:500;font-size:14px;padding:10px 24px;border-radius:9999px;border:2px solid #2563EB;cursor:pointer;transition:background-color 0.2s,transform 0.15s;}.ds-btn-outline:hover{background:rgba(37,99,235,0.05);transform:scale(1.03);}.ds-btn-outline:active{transform:scale(0.97);}.ds-btn-outline:focus-visible{outline:2px solid #2563EB;outline-offset:2px;}"
+    },
+    {
+      "name": "Interval Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "The closed-set interval/status pill — blue for hourly, violet for daily, emerald for weekly or billed.",
+      "html": "<span class=\"ds-badge-daily\">Daily</span>",
+      "css": ".ds-badge-daily{display:inline-flex;align-items:center;gap:6px;background:#F5F3FF;color:#6D28D9;font-family:Inter,sans-serif;font-size:12px;font-weight:500;padding:4px 10px;border-radius:9999px;box-shadow:inset 0 0 0 1px rgba(109,40,217,0.1);}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Fill-based field with no visible border; ring stands in for a stroke and the field lifts to white on focus.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Project name\" />",
+      "css": ".ds-input{display:block;width:100%;background:#F8FAFC;color:#0F172A;font-family:Inter,sans-serif;font-size:16px;padding:12px 16px;border-radius:12px;border:none;box-shadow:inset 0 0 0 1px rgba(226,232,240,0.7);transition:box-shadow 0.2s,background-color 0.2s;}.ds-input::placeholder{color:#94A3B8;}.ds-input:focus{background:#fff;outline:none;box-shadow:inset 0 0 0 2px #2563EB;}"
+    },
+    {
+      "name": "Project Card",
+      "kind": "card",
+      "refersTo": "card-project",
+      "description": "Groups one project's billing periods; the current row-clarity pattern for the History panel.",
+      "html": "<div class=\"ds-card-project\"><div class=\"ds-card-header\"><div><p class=\"ds-card-title\">Website redesign</p><p class=\"ds-card-subtitle\">Acme Corp</p></div><span class=\"ds-badge-hourly\">Hourly</span></div><div class=\"ds-card-row\"><span class=\"ds-row-label\">This week</span><span class=\"ds-row-value\">3h 30m</span></div></div>",
+      "css": ".ds-card-project{background:rgba(248,250,252,0.6);border:1px solid #F1F5F9;border-radius:12px;padding:10px;font-family:Inter,sans-serif;}.ds-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px;}.ds-card-title{font-size:14px;font-weight:600;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0;}.ds-card-subtitle{font-size:12px;color:#64748B;margin:0;}.ds-badge-hourly{display:inline-flex;align-items:center;background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:500;padding:4px 10px;border-radius:9999px;box-shadow:inset 0 0 0 1px rgba(29,78,216,0.1);}.ds-card-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 4px 0;margin-top:8px;border-top:1px solid rgba(226,232,240,0.8);}.ds-row-label{font-size:14px;color:#334155;}.ds-row-value{font-size:14px;font-weight:600;color:#0F172A;font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Tracker Control",
+      "kind": "custom",
+      "refersTo": "tracker-control",
+      "description": "Signature component: the circular Start/Pause button beside the Display-scale elapsed-time numeral — the one loud moment in the system.",
+      "html": "<div class=\"ds-tracker\"><span class=\"ds-tracker-clock\">24:18</span><button class=\"ds-tracker-btn\" aria-label=\"Start\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5v14l11-7z\"/></svg></button></div>",
+      "css": ".ds-tracker{display:flex;align-items:center;gap:16px;font-family:Inter,sans-serif;}.ds-tracker-clock{font-size:48px;font-weight:600;letter-spacing:-0.025em;color:#0F172A;font-variant-numeric:tabular-nums;line-height:1;}.ds-tracker-btn{width:56px;height:56px;border-radius:9999px;background:#2563EB;color:#fff;border:2px solid transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 15px -3px rgba(37,99,235,0.25);transition:background-color 0.2s,transform 0.15s;}.ds-tracker-btn:hover{background:#1E40AF;transform:scale(1.03);}.ds-tracker-btn:active{transform:scale(0.97);}.ds-tracker-btn:focus-visible{outline:2px solid #2563EB;outline-offset:2px;}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segmented-control",
+      "description": "The billing-interval picker: a tonal track with a raised white active segment.",
+      "html": "<div class=\"ds-segmented\"><button class=\"ds-segment ds-segment-active\">Hourly</button><button class=\"ds-segment\">Daily</button><button class=\"ds-segment\">Weekly</button></div>",
+      "css": ".ds-segmented{display:flex;gap:4px;background:#F1F5F9;padding:4px;border-radius:8px;font-family:Inter,sans-serif;}.ds-segment{flex:1;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;color:#64748B;background:transparent;border:none;cursor:pointer;transition:color 0.2s,background-color 0.2s;}.ds-segment:hover{color:#334155;}.ds-segment-active{background:#fff;color:#2563EB;box-shadow:0 1px 2px 0 rgba(0,0,0,0.05);}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Ledger",
+    "overview": "Cadence looks like a calm, precise bookkeeping companion, not a dashboard. It is flat, small, and gets out of the way the instant its job is done — a popover you glance at, act on, and dismiss. Nothing here competes for attention: one accent color, one typeface, one signature circular control. What personality the system has comes from precision (tabular numerals that never jitter, exact spacing, a restrained interval-color code) rather than decoration.\n\nThis is a deliberate departure from the colorful, chart-heavy SaaS dashboards the time-tracking category defaults to (Toggl, Harvest, Clockify). Cadence explicitly rejects category colors, data tables, and dashboard chrome — it never resembles a report you'd study, only a small, correct record you'd trust.",
+    "keyCharacteristics": [
+      "Flat by default; shadow is a rare, deliberate exception, never routine elevation.",
+      "One accent (Working Blue) used sparingly; everything else is slate neutrals plus three small semantic accents for state (red, amber) and interval identity (blue/violet/emerald).",
+      "rounded-full pills dominate every interactive control; rounded-xl holds every container.",
+      "All numeric/time/currency values render in tabular figures so nothing shifts as digits change.",
+      "Fixed 420px width, dynamic height — the system designs for a small, non-resizable canvas, not a responsive page."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Working Blue appears on at most one element per screen doing something (the primary button, the focused field). It is never a background wash, a decorative fill, or a repeated brand flourish.", "section": "colors" },
+      { "name": "The Interval Code Rule", "body": "Blue → hourly, violet → daily, emerald → weekly is a fixed, closed mapping. Never reassign these three colors to anything else, and never introduce a fourth interval color without redesigning the whole code.", "section": "colors" },
+      { "name": "The Tabular Numerals Rule", "body": "Every value that ticks, sums, or could realign (elapsed time, durations, currency amounts, countdown seconds) renders with tabular-nums. Digits must never cause neighboring text to shift.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Cards, rows, and buttons carry no shadow at rest. Shadow appears only for something genuinely floating above the layout (a dropdown) or one intentional call-to-attention moment — never as routine 'card' styling.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep Working Blue to one meaningful use per screen (see the One Accent Rule).",
+      "Do use tabular-nums on every value that ticks, sums, or updates live.",
+      "Do use rounded-full for anything actionable and rounded-xl for anything that contains other content.",
+      "Do gate every destructive action behind an inline 'Confirm delete/overwrite' step rather than a modal — Cadence has no modal system.",
+      "Do keep new surfaces flat; reach for ring-1 ring-inset and tonal slate backgrounds before reaching for a shadow."
+    ],
+    "donts": [
+      "Don't introduce a second accent color for 'brand' purposes — the system has exactly one (Working Blue).",
+      "Don't reassign the hourly/daily/weekly color code (blue/violet/emerald) to any other meaning.",
+      "Don't add drop shadows to routine cards, rows, or buttons — shadow is reserved for floating overlays and the one Start-button glow.",
+      "Don't introduce a second typeface or a decorative display font; Inter carries the entire system, including the 'hero' numerals.",
+      "Don't design dashboard-style chrome (charts, dense tables, category-color legends) — that is the explicit anti-reference this system rejects."
+    ]
+  }
+}

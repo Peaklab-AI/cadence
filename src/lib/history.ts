@@ -135,7 +135,10 @@ function summarizePeriodEntries(
 /** Groups ALL tracked time (no date-range filter — the History panel always
  * shows everything) per project, bucketed by week. Each project's periods
  * are sorted most-recent-first, and each period's `billed` flag reflects
- * the matching `BilledPeriod` record, if any. */
+ * the matching `BilledPeriod` record, if any. Projects themselves are
+ * ordered by their most recently logged period (whichever project has time
+ * logged most recently appears first), tie-broken by client then project
+ * name so otherwise-equal projects still sort predictably. */
 export function summarizeAllHistory(
   entries: TimeEntry[],
   projects: Project[],
@@ -188,8 +191,24 @@ export function summarizeAllHistory(
     });
   }
 
-  summaries.sort((a, b) => a.clientName.localeCompare(b.clientName) || a.projectName.localeCompare(b.projectName));
+  summaries.sort(
+    (a, b) =>
+      // periods[0] is each project's most recent period (sorted above), so
+      // this orders projects by whichever was logged in most recently.
+      b.periods[0].periodStartKey.localeCompare(a.periods[0].periodStartKey) ||
+      a.clientName.localeCompare(b.clientName) ||
+      a.projectName.localeCompare(b.projectName),
+  );
   return summaries;
+}
+
+/** Drops billed periods from each project, and drops any project left with
+ * no periods at all — used by the History panel to hide settled work by
+ * default. */
+export function hideBilledPeriods(groups: ProjectHistory[]): ProjectHistory[] {
+  return groups
+    .map((g) => ({ ...g, periods: g.periods.filter((p) => !p.billed) }))
+    .filter((g) => g.periods.length > 0);
 }
 
 function csvTime(date: Date): string {
