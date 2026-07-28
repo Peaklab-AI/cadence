@@ -23,3 +23,4 @@ See also [`docs/plans/`](../plans/README.md) for feature-scoped design decisions
 
 | # | Title | Status | Date |
 |---|-------|--------|------|
+| [0001](0001-frontend-test-runner.md) | Use Vitest for frontend tests | Accepted | 2026-07-28 |

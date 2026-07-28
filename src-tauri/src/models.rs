@@ -117,3 +117,15 @@ impl Default for AppData {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn threshold_seconds_matches_each_interval() {
+        assert_eq!(Interval::Hourly.threshold_seconds(), 3600);
+        assert_eq!(Interval::Daily.threshold_seconds(), 86400);
+        assert_eq!(Interval::Weekly.threshold_seconds(), 604800);
+    }
+}

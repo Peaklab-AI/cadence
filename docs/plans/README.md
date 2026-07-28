@@ -21,3 +21,4 @@ A plan is not just a task list — it's a record that design forks were surfaced
 
 | Feature | Status | Date |
 |---------|--------|------|
+| [Add tests for current logic](add-tests.md) | Done | 2026-07-28 |

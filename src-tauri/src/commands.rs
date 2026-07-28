@@ -645,3 +645,139 @@ pub fn cancel_leave_tracking_off(app: AppHandle) {
         let _ = window.set_focus();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Settings;
+
+    fn project(id: &str, created_at: &str) -> Project {
+        Project {
+            id: id.to_string(),
+            client_id: "c1".to_string(),
+            name: id.to_string(),
+            created_at: created_at.to_string(),
+            interval: Interval::Hourly,
+            rate: None,
+            currency: None,
+        }
+    }
+
+    fn entry(project_id: &str, started_at: &str, ended_at: Option<&str>, duration_seconds: i64) -> TimeEntry {
+        TimeEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            client_id: "c1".to_string(),
+            project_id: project_id.to_string(),
+            started_at: started_at.to_string(),
+            ended_at: ended_at.map(|s| s.to_string()),
+            duration_seconds,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn entry_duration_seconds_computes_valid_ranges() {
+        let seconds = entry_duration_seconds("2026-07-06T09:00:00Z", "2026-07-06T10:00:00Z").unwrap();
+        assert_eq!(seconds, 3600);
+    }
+
+    #[test]
+    fn entry_duration_seconds_rejects_equal_timestamps() {
+        let result = entry_duration_seconds("2026-07-06T09:00:00Z", "2026-07-06T09:00:00Z");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_duration_seconds_rejects_end_before_start() {
+        let result = entry_duration_seconds("2026-07-06T09:00:00Z", "2026-07-06T08:00:00Z");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entry_duration_seconds_rejects_malformed_timestamps() {
+        let result = entry_duration_seconds("not-a-timestamp", "2026-07-06T09:00:00Z");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sanitize_filename_replaces_each_illegal_character() {
+        assert_eq!(sanitize_filename(r#"a/b\c:d*e?f"g<h>i|j"#), "a-b-c-d-e-f-g-h-i-j");
+    }
+
+    #[test]
+    fn sanitize_filename_leaves_clean_names_unchanged() {
+        assert_eq!(sanitize_filename("Invoice 2026-07.csv"), "Invoice 2026-07.csv");
+    }
+
+    #[test]
+    fn projects_by_usage_orders_by_total_tracked_seconds_descending() {
+        let data = AppData {
+            version: 1,
+            clients: vec![],
+            projects: vec![project("low", "2026-01-01T00:00:00Z"), project("high", "2026-01-02T00:00:00Z")],
+            time_entries: vec![
+                entry("low", "2026-07-06T09:00:00Z", Some("2026-07-06T09:10:00Z"), 600),
+                entry("high", "2026-07-06T09:00:00Z", Some("2026-07-06T10:00:00Z"), 3600),
+            ],
+            billed_periods: vec![],
+            settings: Settings { active_entry_id: None },
+        };
+
+        let ordered = projects_by_usage(&data);
+        assert_eq!(ordered.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["high", "low"]);
+    }
+
+    #[test]
+    fn projects_by_usage_breaks_ties_by_created_at_ascending() {
+        let data = AppData {
+            version: 1,
+            clients: vec![],
+            projects: vec![project("newer", "2026-02-01T00:00:00Z"), project("older", "2026-01-01T00:00:00Z")],
+            time_entries: vec![
+                entry("newer", "2026-07-06T09:00:00Z", Some("2026-07-06T10:00:00Z"), 3600),
+                entry("older", "2026-07-06T09:00:00Z", Some("2026-07-06T10:00:00Z"), 3600),
+            ],
+            billed_periods: vec![],
+            settings: Settings { active_entry_id: None },
+        };
+
+        let ordered = projects_by_usage(&data);
+        assert_eq!(ordered.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["older", "newer"]);
+    }
+
+    #[test]
+    fn projects_by_usage_counts_live_elapsed_time_for_the_open_entry() {
+        // started far enough in the past that live elapsed time reliably
+        // dominates the closed "touched" project regardless of test jitter
+        let long_ago = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let data = AppData {
+            version: 1,
+            clients: vec![],
+            projects: vec![project("open", "2026-01-01T00:00:00Z"), project("touched", "2026-01-02T00:00:00Z")],
+            time_entries: vec![
+                entry("open", &long_ago, None, 0),
+                entry("touched", "2026-07-06T09:00:00Z", Some("2026-07-06T09:00:10Z"), 10),
+            ],
+            billed_periods: vec![],
+            settings: Settings { active_entry_id: None },
+        };
+
+        let ordered = projects_by_usage(&data);
+        assert_eq!(ordered[0].id, "open");
+    }
+
+    #[test]
+    fn projects_by_usage_sorts_untouched_projects_last() {
+        let data = AppData {
+            version: 1,
+            clients: vec![],
+            projects: vec![project("untouched", "2020-01-01T00:00:00Z"), project("touched", "2026-01-02T00:00:00Z")],
+            time_entries: vec![entry("touched", "2026-07-06T09:00:00Z", Some("2026-07-06T09:00:10Z"), 10)],
+            billed_periods: vec![],
+            settings: Settings { active_entry_id: None },
+        };
+
+        let ordered = projects_by_usage(&data);
+        assert_eq!(ordered.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["touched", "untouched"]);
+    }
+}
