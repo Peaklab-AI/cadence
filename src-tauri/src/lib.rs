@@ -69,6 +69,7 @@ pub fn run() {
             commands::mark_period_billed,
             commands::unmark_period_billed,
             commands::save_text_file,
+            commands::save_report_pdf,
             commands::add_client,
             commands::add_project,
             commands::start_tracking,
@@ -84,6 +85,9 @@ pub fn run() {
             commands::get_storage_settings,
             commands::check_data_folder,
             commands::set_data_directory,
+            commands::get_report_settings,
+            commands::set_report_settings,
+            commands::set_suppress_hide,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

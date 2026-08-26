@@ -1,0 +1,17 @@
+.section {
+  background: var(--plu-color-mint-wash);
+  padding: var(--plu-section-y) var(--plu-gutter);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--plu-space-8);
+  margin-top: var(--plu-space-12);
+}
+
+@media (max-width: 767px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

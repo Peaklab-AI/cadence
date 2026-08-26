@@ -1,0 +1,13 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+  font-family: var(--plu-font-display);
+  font-weight: var(--plu-weight-semibold);
+  font-size: var(--plu-size-body-lg);
+  color: var(--plu-text-primary);
+}
+
+.mark {
+  display: inline-flex;
+}

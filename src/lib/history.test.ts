@@ -7,8 +7,11 @@ import {
   weekLabel,
   formatDuration,
   summarizeAllHistory,
+  summarizeUnbilledTotal,
   hideBilledPeriods,
+  groupHistoryByClient,
   buildTimeLogCsv,
+  buildReportRows,
 } from "./history";
 import type { BilledPeriod, Client, Project, TimeEntry } from "../types";
 
@@ -137,7 +140,7 @@ describe("formatDuration", () => {
 });
 
 describe("summarizeAllHistory", () => {
-  it("floors hourly billing to whole completed hours but shows full live elapsed time in the display", () => {
+  it("bills hourly time exactly, matching the live elapsed time in the display", () => {
     const clients = [makeClient()];
     const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
     const entries = [
@@ -152,10 +155,10 @@ describe("summarizeAllHistory", () => {
 
     expect(result).toHaveLength(1);
     const [period] = result[0].periods;
-    // total live seconds = 3600 + 1800 = 5400 -> display 1h 30m, but billed
-    // quantity floors to 1 completed hour, not 1.5
+    // total live seconds = 3600 + 1800 = 5400 -> 1h 30m, billed exactly (not
+    // floored to the 1 completed hour)
     expect(period.display).toBe("1h 30m");
-    expect(period.amount).toBe(100);
+    expect(period.amount).toBe(150);
   });
 
   it("returns null amount when the project has no rate, regardless of quantity", () => {
@@ -304,6 +307,122 @@ describe("hideBilledPeriods", () => {
   });
 });
 
+describe("groupHistoryByClient", () => {
+  it("sums unbilled amounts across a client's projects that share a currency", () => {
+    const clients = [makeClient({ id: "c1", name: "Acme" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", interval: "hourly", rate: 100, currency: "USD" }),
+      makeProject({ id: "p2", clientId: "c1", interval: "hourly", rate: 50, currency: "USD" }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T11:00:00", durationSeconds: 7200 }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, []);
+    const [clientHistory] = groupHistoryByClient(groups, projects);
+
+    // p1: 2h * 100 = 200, p2: 1h * 50 = 50
+    expect(clientHistory.unbilledTotals).toEqual([{ currency: "USD", amount: 250 }]);
+    expect(clientHistory.projects.map((p) => p.projectId).sort()).toEqual(["p1", "p2"]);
+  });
+
+  it("keeps mixed currencies separate rather than adding them together", () => {
+    const clients = [makeClient({ id: "c1", name: "Acme" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", interval: "hourly", rate: 100, currency: "USD" }),
+      makeProject({ id: "p2", clientId: "c1", interval: "hourly", rate: 50, currency: "AUD" }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, []);
+    const [clientHistory] = groupHistoryByClient(groups, projects);
+
+    expect(clientHistory.unbilledTotals).toEqual([
+      { currency: "AUD", amount: 50 },
+      { currency: "USD", amount: 100 },
+    ]);
+  });
+
+  it("contributes no figure for a project with no rate set", () => {
+    const clients = [makeClient({ id: "c1", name: "Acme" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", interval: "hourly", rate: 100, currency: "USD" }),
+      makeProject({ id: "p2", clientId: "c1", interval: "daily", rate: null, currency: null }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00" }),
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, []);
+    const [clientHistory] = groupHistoryByClient(groups, projects);
+
+    expect(clientHistory.unbilledTotals).toEqual([{ currency: "USD", amount: 100 }]);
+    expect(clientHistory.projects).toHaveLength(2);
+  });
+
+  it("orders clients by unbilled amount owed, highest first", () => {
+    const clients = [
+      makeClient({ id: "c1", name: "Acme" }),
+      makeClient({ id: "c2", name: "Big Co" }),
+      makeClient({ id: "c3", name: "Zero Co" }),
+    ];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", interval: "hourly", rate: 100, currency: "USD" }),
+      makeProject({ id: "p2", clientId: "c2", interval: "hourly", rate: 500, currency: "USD" }),
+      makeProject({ id: "p3", clientId: "c3", interval: "daily", rate: null, currency: null }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e3", projectId: "p3", startedAt: "2026-07-06T09:00:00" }),
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, []);
+    const result = groupHistoryByClient(groups, projects);
+
+    expect(result.map((c) => c.clientId)).toEqual(["c2", "c1", "c3"]);
+  });
+});
+
+describe("summarizeUnbilledTotal", () => {
+  it("totals only the unbilled periods for an hourly project, ignoring billed ones", () => {
+    const clients = [makeClient()];
+    const project = makeProject({ id: "p1", interval: "hourly", rate: 100 });
+    const entries = [
+      // billed week: 2h
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T11:00:00", durationSeconds: 7200 }),
+      // unbilled week: 1h30m
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-13T09:00:00", endedAt: "2026-07-13T10:30:00", durationSeconds: 5400 }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const [history] = summarizeAllHistory(entries, [project], clients, billedPeriods);
+    const result = summarizeUnbilledTotal(history, project);
+
+    expect(result.display).toBe("1h 30m");
+    expect(result.amount).toBe(150);
+  });
+
+  it("returns a null amount when the project has no rate", () => {
+    const clients = [makeClient()];
+    const project = makeProject({ id: "p1", interval: "daily", rate: null });
+    const entries = [makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00" })];
+
+    const [history] = summarizeAllHistory(entries, [project], clients, []);
+    const result = summarizeUnbilledTotal(history, project);
+
+    expect(result.display).toBe("1 day");
+    expect(result.amount).toBeNull();
+  });
+});
+
 describe("buildTimeLogCsv", () => {
   it("includes an Amount column only for hourly projects with a rate", () => {
     const hourlyWithRate = makeProject({ interval: "hourly", rate: 100 });
@@ -353,5 +472,99 @@ describe("buildTimeLogCsv", () => {
     expect(row).toContain("100.00");
     expect(row).toContain("Yes");
     expect(row).toContain('"INV-9"');
+  });
+});
+
+describe("buildReportRows", () => {
+  it("only includes closed entries within [start, end)", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      makeEntry({ id: "before", startedAt: "2026-07-01T09:00:00", endedAt: "2026-07-01T10:00:00" }),
+      makeEntry({ id: "inRange", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "onEndBoundary", startedAt: "2026-07-13T00:00:00", endedAt: "2026-07-13T01:00:00" }),
+      makeEntry({ id: "open", startedAt: "2026-07-07T09:00:00", endedAt: null, durationSeconds: 0 }),
+    ];
+
+    const sections = buildReportRows(entries, projects, clients, [], new Date(2026, 6, 6), new Date(2026, 6, 13));
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].rows).toHaveLength(1);
+    expect(sections[0].rows[0].date).toBe("2026-07-06");
+  });
+
+  it("narrows to the given client and/or project", () => {
+    const clients = [makeClient({ id: "c1", name: "Acme" }), makeClient({ id: "c2", name: "Globex" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", name: "Website" }),
+      makeProject({ id: "p2", clientId: "c2", name: "App" }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+    ];
+    const start = new Date(2026, 6, 1);
+    const end = new Date(2026, 6, 31);
+
+    const byClient = buildReportRows(entries, projects, clients, [], start, end, { clientId: "c1" });
+    const byProject = buildReportRows(entries, projects, clients, [], start, end, { projectId: "p2" });
+
+    expect(byClient.map((s) => s.projectName)).toEqual(["Website"]);
+    expect(byProject.map((s) => s.projectName)).toEqual(["App"]);
+  });
+
+  it("looks up billed status per entry's own week, not a single value for the whole range", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      makeEntry({ id: "e1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "e2", startedAt: "2026-07-13T09:00:00", endedAt: "2026-07-13T10:00:00" }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: "INV-1" },
+    ];
+
+    const [section] = buildReportRows(
+      entries,
+      projects,
+      clients,
+      billedPeriods,
+      new Date(2026, 6, 6),
+      new Date(2026, 6, 20),
+    );
+
+    const week1 = section.rows.find((r) => r.date === "2026-07-06")!;
+    const week2 = section.rows.find((r) => r.date === "2026-07-13")!;
+    expect(week1.billed).toBe(true);
+    expect(week1.invoiceId).toBe("INV-1");
+    expect(week2.billed).toBe(false);
+    expect(week2.invoiceId).toBeNull();
+  });
+
+  it("only computes a per-row amount for hourly projects with a rate", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "daily", rate: 200 })];
+    const entries = [makeEntry({ id: "e1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" })];
+
+    const [section] = buildReportRows(entries, projects, clients, [], new Date(2026, 6, 1), new Date(2026, 6, 31));
+
+    expect(section.rows[0].amount).toBeNull();
+  });
+
+  it("omits projects with no entries in range and sorts sections by client then project name", () => {
+    const clients = [makeClient({ id: "c1", name: "Zulu" }), makeClient({ id: "c2", name: "Acme" })];
+    const projects = [
+      makeProject({ id: "p1", clientId: "c1", name: "Website" }),
+      makeProject({ id: "p2", clientId: "c2", name: "App" }),
+      makeProject({ id: "p3", clientId: "c2", name: "NoEntries" }),
+    ];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+    ];
+
+    const sections = buildReportRows(entries, projects, clients, [], new Date(2026, 6, 1), new Date(2026, 6, 31));
+
+    expect(sections.map((s) => s.projectName)).toEqual(["App", "Website"]);
   });
 });

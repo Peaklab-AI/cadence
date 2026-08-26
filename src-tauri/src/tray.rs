@@ -48,6 +48,19 @@ const BLUR_REOPEN_GUARD: Duration = Duration::from_millis(250);
 static LAST_LEAVE_OFF_NAG: Mutex<Option<Instant>> = Mutex::new(None);
 const LEAVE_OFF_NAG_COOLDOWN: Duration = Duration::from_secs(20 * 60);
 
+/// Set while a native file/folder picker (e.g. the logo upload input) is
+/// open. On macOS, presenting that OS panel takes key focus away from the
+/// webview just like clicking outside the popover would, which would
+/// otherwise fire the same `Focused(false)` → hide path below and make the
+/// window vanish out from under the open picker. The frontend sets this
+/// immediately before opening a picker and clears it once the picker
+/// closes (chosen or cancelled).
+static SUPPRESS_HIDE: Mutex<bool> = Mutex::new(false);
+
+pub fn set_suppress_hide(suppressed: bool) {
+    *SUPPRESS_HIDE.lock_or_recover() = suppressed;
+}
+
 pub fn record_blur_hide() {
     *LAST_BLUR_HIDE.lock_or_recover() = Some(Instant::now());
 }
@@ -84,6 +97,9 @@ pub fn reset_leave_off_nag() {
 /// frontend is asked to confirm first. Returns whether the window was
 /// actually hidden.
 pub fn request_hide(app: &AppHandle) -> bool {
+    if *SUPPRESS_HIDE.lock_or_recover() {
+        return false;
+    }
     let Some(window) = app.get_webview_window("main") else {
         return false;
     };

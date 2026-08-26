@@ -1,0 +1,8 @@
+.section {
+  background: var(--plu-surface-page);
+  padding: var(--plu-section-y) var(--plu-gutter);
+}
+
+.accordion {
+  margin-top: var(--plu-space-12);
+}

@@ -1,0 +1,148 @@
+.page {
+  min-height: 100vh;
+}
+
+.heroSection {
+  /* .heroTop (Hero.module.css) already reserves --site-nav-height above
+     this, so top padding here only needs to add breathing room past the
+     nav, not a second full section's worth of space. */
+  padding-block: var(--plu-space-10) var(--plu-space-8);
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  align-items: center;
+  gap: var(--plu-space-16);
+}
+
+@media (max-width: 1023px) {
+  .heroGrid {
+    /* minmax(0, 1fr), not bare 1fr (= minmax(auto, 1fr)) — the install
+       command's unbreakable URL text otherwise sets this track's automatic
+       minimum size to its full unwrapped width, overflowing the viewport
+       on narrow screens. See css_layout_guide.md's flex/grid min-width
+       guidance; same fix already applied on the desktop columns above. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--plu-space-12);
+  }
+}
+
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--plu-space-5);
+  min-width: 0;
+}
+
+.leadText {
+  /* Pulls the lead paragraph up to counteract its generous line-height
+     (--plu-leading-relaxed, 1.55), which otherwise pads visually above the
+     first line on top of .heroCopy's flex gap, reading as a much bigger
+     gap than the title's own tight leading below it. */
+  margin-top: calc(-1 * var(--plu-space-5));
+}
+
+.ctaRow {
+  margin-top: var(--plu-space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.factLine {
+  margin-top: calc(-1 * var(--plu-space-3));
+}
+
+.githubLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+  color: var(--plu-text-secondary);
+  transition: var(--plu-transition-control);
+}
+
+.githubLink:hover {
+  color: var(--plu-text-primary);
+}
+
+.githubLink:focus-visible {
+  outline: 2px solid var(--plu-focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--plu-radius-xs);
+}
+
+.heroMockupWrap {
+  display: flex;
+  justify-content: center;
+}
+
+.footerSection {
+  padding-block: var(--plu-space-12) var(--plu-space-8);
+}
+
+.footerRow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--plu-space-5);
+}
+
+.legalBar {
+  border-top: 1px solid var(--plu-border-subtle);
+}
+
+.legalInner {
+  padding-block: var(--plu-space-5);
+  display: flex;
+  justify-content: center;
+}
+
+.discordCta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+  color: var(--plu-text-secondary);
+  transition: var(--plu-transition-control);
+}
+
+.discordCta:hover {
+  color: var(--plu-text-primary);
+}
+
+.discordCta:focus-visible {
+  outline: 2px solid var(--plu-focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--plu-radius-xs);
+}
+
+.peaklabCredit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+}
+
+.peaklabCreditLabel {
+  color: var(--plu-text-tertiary);
+}
+
+.peaklabLink {
+  display: inline-flex;
+  align-items: center;
+  transition: var(--plu-transition-control);
+}
+
+.peaklabLink:hover {
+  opacity: 0.75;
+}
+
+.peaklabLink:focus-visible {
+  outline: 2px solid var(--plu-focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--plu-radius-xs);
+}
+
+.footerMeta {
+  color: var(--plu-text-disabled);
+}

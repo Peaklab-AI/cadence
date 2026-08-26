@@ -47,7 +47,7 @@ export function ConfirmPrompt() {
             transition={{ duration: 0.4, ease: "linear" }}
           />
         </svg>
-        <span className="font-display text-lg font-semibold tabular-nums text-slate-900">{secondsLeft ?? ""}</span>
+        <span className="font-display text-lg font-semibold leading-none tabular-nums text-slate-900">{secondsLeft ?? ""}</span>
       </div>
 
       <div>

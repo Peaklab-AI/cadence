@@ -217,6 +217,19 @@ pub fn save_text_file(app: AppHandle, filename: String, contents: String) -> Res
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Writes arbitrary bytes (a generated PDF report, currently) into the same
+/// folder as the tracking data file (`state.data_dir`), unlike
+/// `save_text_file` which targets the OS Downloads folder — a report is
+/// meant to live alongside `cadence-data.json`, not be a one-off download.
+#[tauri::command]
+pub fn save_report_pdf(state: State<AppState>, filename: String, contents: Vec<u8>) -> Result<String, String> {
+    let dir = state.data_dir.lock_or_recover().clone();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(sanitize_filename(&filename));
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageSettings {
@@ -329,6 +342,50 @@ pub fn set_data_directory(
     let mut settings = build_storage_settings(&app, &state)?;
     settings.warning = warning;
     Ok(settings)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportSettings {
+    pub title: Option<String>,
+    pub logo_data_url: Option<String>,
+}
+
+fn build_report_settings(state: &State<AppState>) -> ReportSettings {
+    let data = state.data.lock_or_recover();
+    ReportSettings {
+        title: data.settings.report_title.clone(),
+        logo_data_url: data.settings.report_logo_data_url.clone(),
+    }
+}
+
+#[tauri::command]
+pub fn get_report_settings(state: State<AppState>) -> ReportSettings {
+    build_report_settings(&state)
+}
+
+#[tauri::command]
+pub fn set_report_settings(
+    app: AppHandle,
+    state: State<AppState>,
+    title: Option<String>,
+    logo_data_url: Option<String>,
+) -> Result<ReportSettings, String> {
+    save_data(&app, &state, |data| {
+        data.settings.report_title = title.filter(|t| !t.trim().is_empty());
+        data.settings.report_logo_data_url = logo_data_url;
+        Ok(())
+    })?;
+    Ok(build_report_settings(&state))
+}
+
+/// Called by the frontend around opening a native file/folder picker (e.g.
+/// the logo upload input), so the popover doesn't hide itself out from
+/// under the picker when the OS panel takes focus. See
+/// `tray::SUPPRESS_HIDE`.
+#[tauri::command]
+pub fn set_suppress_hide(suppressed: bool) {
+    tray::set_suppress_hide(suppressed);
 }
 
 #[tauri::command]
@@ -720,7 +777,7 @@ mod tests {
                 entry("high", "2026-07-06T09:00:00Z", Some("2026-07-06T10:00:00Z"), 3600),
             ],
             billed_periods: vec![],
-            settings: Settings { active_entry_id: None },
+            settings: Settings::default(),
         };
 
         let ordered = projects_by_usage(&data);
@@ -738,7 +795,7 @@ mod tests {
                 entry("older", "2026-07-06T09:00:00Z", Some("2026-07-06T10:00:00Z"), 3600),
             ],
             billed_periods: vec![],
-            settings: Settings { active_entry_id: None },
+            settings: Settings::default(),
         };
 
         let ordered = projects_by_usage(&data);
@@ -759,7 +816,7 @@ mod tests {
                 entry("touched", "2026-07-06T09:00:00Z", Some("2026-07-06T09:00:10Z"), 10),
             ],
             billed_periods: vec![],
-            settings: Settings { active_entry_id: None },
+            settings: Settings::default(),
         };
 
         let ordered = projects_by_usage(&data);
@@ -774,7 +831,7 @@ mod tests {
             projects: vec![project("untouched", "2020-01-01T00:00:00Z"), project("touched", "2026-01-02T00:00:00Z")],
             time_entries: vec![entry("touched", "2026-07-06T09:00:00Z", Some("2026-07-06T09:00:10Z"), 10)],
             billed_periods: vec![],
-            settings: Settings { active_entry_id: None },
+            settings: Settings::default(),
         };
 
         let ordered = projects_by_usage(&data);

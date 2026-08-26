@@ -112,7 +112,7 @@ mod tests {
             }],
             time_entries: Vec::new(),
             billed_periods: Vec::new(),
-            settings: Settings { active_entry_id: None },
+            settings: Settings::default(),
         };
         let json = serde_json::to_string_pretty(&data).unwrap();
         let parsed: AppData = serde_json::from_str(&json).unwrap();

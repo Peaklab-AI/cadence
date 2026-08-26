@@ -1,0 +1,42 @@
+.section {
+  padding: 0 var(--plu-gutter) var(--plu-section-y);
+}
+
+.card {
+  background: var(--plu-gradient-brand);
+  border-radius: var(--plu-radius-2xl);
+  padding: clamp(48px, 8vw, 84px) clamp(24px, 6vw, 56px);
+  text-align: center;
+}
+
+.body {
+  margin: var(--plu-space-4) auto var(--plu-space-6);
+  max-width: 34em;
+  color: var(--plu-color-ink);
+  opacity: 0.72;
+}
+
+.actions {
+  display: flex;
+  justify-content: center;
+}
+
+.githubLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+  margin-top: var(--plu-space-4);
+  color: var(--plu-color-ink);
+  opacity: 0.6;
+  transition: var(--plu-transition-control);
+}
+
+.githubLink:hover {
+  opacity: 0.85;
+}
+
+.githubLink:focus-visible {
+  outline: 2px solid var(--plu-focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--plu-radius-xs);
+}

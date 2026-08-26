@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
@@ -95,6 +95,7 @@ function MainView() {
   const loadState = useTrackerLoadState();
   const [screen, setScreen] = useState<Screen>({ kind: "tracker" });
   const [showBilled, setShowBilled] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -224,7 +225,20 @@ function MainView() {
             {screenTitle(screen)}
           </button>
           {screen.kind === "history" && (
-            <Switch checked={showBilled} onChange={setShowBilled} label="Show billed" />
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setReportOpen((open) => !open)}
+                aria-label={reportOpen ? "Hide report options" : "Generate report"}
+                aria-expanded={reportOpen}
+                className={`rounded-lg p-1.5 transition-colors hover:bg-slate-100 hover:text-slate-600 ${
+                  reportOpen ? "bg-slate-100 text-slate-600" : "text-slate-400"
+                }`}
+              >
+                <FileText size={16} />
+              </button>
+              <Switch checked={showBilled} onChange={setShowBilled} label="Show billed" />
+            </div>
           )}
         </header>
       )}
@@ -316,6 +330,7 @@ function MainView() {
                 onOpenLog={(project, anchor) => setScreen({ kind: "projectLog", project, anchor })}
                 showBilled={showBilled}
                 onShowBilledChange={setShowBilled}
+                reportOpen={reportOpen}
               />
             </motion.div>
           )}

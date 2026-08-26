@@ -1,0 +1,59 @@
+/*
+ * Layering for the AnimatedBackground treatment, ported as CSS from
+ * agency's AnimatedHero.module.css (no image layer here — Cadence has no
+ * per-locale photo — so the z-index bands collapse to two: the ambient
+ * grid/beams (z-index: auto) below, everything with .stacked (z-index: 3)
+ * above). isolation: isolate makes .heroTop the shared stacking context so
+ * .titleGlow's glow and the .stacked content compare against
+ * AnimatedBackground correctly instead of each escaping to different
+ * ancestors.
+ */
+.heroTop {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  /* Extends the grid up behind the fixed NavBar's reserved space, same as
+     agency's .section, so the beams — not a white gap — sit under the bar. */
+  margin-top: calc(-1 * var(--site-nav-height, 0px));
+  padding-top: var(--site-nav-height, 0px);
+}
+
+/* Any hero content that needs to independently stack above the ambient
+   grid/beams (z-index: auto) — plain in-flow content would otherwise paint
+   behind a positive-z-index sibling per normal stacking rules. */
+.stacked {
+  position: relative;
+  z-index: 3;
+}
+
+/* Soft brand-gradient glow behind the headline, ported from agency's
+   AnimatedHero.module.css .titleGlow. No z-index/isolation on this wrapper
+   itself — it stays position: relative only, as the containing block for
+   the ::before's inset, so the glow (z-index: 1) stacks against
+   AnimatedBackground's beams via .heroTop's shared context, not trapped
+   locally. */
+.titleGlow {
+  position: relative;
+}
+
+/* z-index: 1 — above the ambient grid/beams (z-index: auto) but below the
+   headline itself (.stacked, z-index: 3), so it reads as light pooling
+   behind the words rather than a wash on top of them. Anchored left-of-
+   center (30% 45%, not 50% 50%) since this hero's copy is left-aligned in
+   its own grid column, not centered like agency's. */
+.titleGlow::before {
+  content: "";
+  position: absolute;
+  inset: -35% -20%;
+  z-index: 1;
+  background: var(--plu-gradient-brand);
+  opacity: 0.6;
+  mask-image: radial-gradient(closest-side at 30% 45%, #000 0%, #000 35%, transparent 100%);
+  -webkit-mask-image: radial-gradient(closest-side at 30% 45%, #000 0%, #000 35%, transparent 100%);
+  pointer-events: none;
+}
+
+.heroTitle {
+  max-width: 18ch;
+  margin-bottom: 12px;
+}

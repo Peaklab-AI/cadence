@@ -1,0 +1,379 @@
+/*
+ * Layout chrome specific to reproducing Cadence's own Tracker/History cards.
+ * Card surface, radius, typography, and chip colors all come from Card/Text/
+ * Title/Tag/Badge + --plu-* tokens; only the app-specific bits (the timer
+ * row, the status-dot ping) are bespoke here.
+ */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  /* Room for the fanned screens' rotation/shift to clear the stack's own
+     edges without clipping against neighboring hero content. Overlap
+     between screens is controlled entirely by each .screen*'s negative
+     margin-top below, not by a gap here. */
+  padding: var(--plu-space-4) var(--plu-space-10);
+}
+
+/*
+ * Each screen tilts independently of Card's own mount animation. Card is a
+ * motion.div that animates `y` on mount, and framer-motion manages that as
+ * an inline `transform` on Card's own root — a rotation set directly on
+ * that element would be overwritten. Wrapping it here keeps the tilt on a
+ * plain element framer-motion never touches.
+ */
+.screen {
+  --tilt: 0deg;
+  --shift: 0px;
+  transform: rotate(var(--tilt)) translateX(var(--shift));
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+}
+
+.screen:hover {
+  --tilt: 0deg;
+  --shift: 0px;
+  z-index: 4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen {
+    transition: none;
+  }
+}
+
+.screenTracker {
+  --tilt: -4deg;
+  --shift: -26px;
+  z-index: 3;
+}
+
+.screenHistory {
+  --tilt: 3deg;
+  --shift: 30px;
+  z-index: 2;
+  margin-top: calc(-1 * var(--plu-space-10));
+}
+
+.screenReport {
+  --tilt: -3deg;
+  --shift: -22px;
+  z-index: 1;
+  margin-top: calc(-1 * var(--plu-space-10));
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--plu-space-2);
+  margin-bottom: var(--plu-space-4);
+}
+
+.statusDotWrap {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+}
+
+.statusDot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--plu-radius-pill);
+  background: var(--plu-color-success);
+}
+
+.statusDotPing {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--plu-radius-pill);
+  background: var(--plu-color-success);
+  animation: plu-status-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusDotPing {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@keyframes plu-status-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.statusLabel {
+  font-family: var(--plu-font-mono);
+  font-size: var(--plu-size-caption);
+  letter-spacing: var(--plu-tracking-label);
+  text-transform: uppercase;
+  color: var(--plu-text-secondary);
+}
+
+.timerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--plu-space-4);
+}
+
+.timer {
+  font-family: var(--plu-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--plu-size-h3);
+  font-weight: var(--plu-weight-semibold);
+  color: var(--plu-text-primary);
+}
+
+.pauseGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--plu-radius-pill);
+  background: var(--plu-surface-sunken);
+  color: var(--plu-text-secondary);
+}
+
+.divider {
+  height: 1px;
+  background: var(--plu-border-subtle);
+  margin-bottom: var(--plu-space-4);
+}
+
+.projectRow {
+  display: flex;
+  align-items: center;
+  gap: var(--plu-space-3);
+}
+
+.projectCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--plu-radius-pill);
+  background: var(--plu-color-mint-wash);
+  color: var(--plu-color-mint-deep);
+}
+
+.projectText {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.projectName {
+  font-weight: var(--plu-weight-medium);
+  color: var(--plu-text-primary);
+}
+
+.projectClient {
+  font-size: var(--plu-size-body-sm);
+  color: var(--plu-text-tertiary);
+}
+
+.historyHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--plu-space-1);
+}
+
+.historyClient {
+  color: var(--plu-text-tertiary);
+  margin-bottom: var(--plu-space-4);
+}
+
+.historyRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--plu-space-4);
+  margin-bottom: var(--plu-space-4);
+}
+
+.historyWeek {
+  color: var(--plu-text-secondary);
+  font-size: var(--plu-size-body-sm);
+}
+
+.historyFigures {
+  display: flex;
+  align-items: baseline;
+  gap: var(--plu-space-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.historyDuration {
+  color: var(--plu-text-secondary);
+  font-size: var(--plu-size-body-sm);
+}
+
+.historyAmount {
+  font-weight: var(--plu-weight-semibold);
+  color: var(--plu-text-primary);
+}
+
+.billedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-1);
+}
+
+/*
+ * The report "screen" reproduces an actual jsPDF/autotable page, not an
+ * app UI card — see ../../../../src/lib/pdfReport.ts. Colors below are
+ * lifted directly from that file's doc.setTextColor()/fillColor calls
+ * (hex equivalents of its RGB triples), not --plu-* tokens: a PDF's
+ * colors are fixed print output, independent of the site's theme, so a
+ * literal match reads as "real export" rather than "themed card". Font
+ * is a plain system sans (Helvetica/Arial) to match what jsPDF's default
+ * font actually renders, not --plu-font-sans.
+ */
+.page {
+  position: relative;
+  background: #ffffff;
+  color: #1a1a1a;
+  border-radius: 3px;
+  border-bottom-right-radius: 0;
+  padding: var(--plu-space-5);
+  font-family: Helvetica, Arial, sans-serif;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+/*
+ * Dog-ear fold at the bottom-right corner — the fastest visual cue that this
+ * screen is a document/PDF page rather than another app card, matching the
+ * square-cornered .page above (a real folded corner needs a sharp edge to
+ * fold against, hence border-bottom-right-radius: 0 there). Bottom-right,
+ * not the more conventional top-right, because .screenReport sits at the
+ * back of Mockup's fanned stack (Mockup.tsx) — .screenHistory always covers
+ * its top edge, but its bottom edge is never covered by another screen.
+ * Drawn as a plain triangle border-trick, not an image or extra markup.
+ */
+.page::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 22px 22px;
+  border-color: transparent transparent transparent #e7eaf0;
+  filter: drop-shadow(-1px -1px 1.5px rgba(15, 23, 42, 0.2));
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--plu-space-3);
+  margin-bottom: var(--plu-space-4);
+}
+
+.pageLogo {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.pageHeadText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.pageTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #3c3c3c;
+}
+
+.pageRange {
+  font-size: 11px;
+  color: #646464;
+}
+
+.pageSection {
+  font-size: 13px;
+  color: #000000;
+  margin: 0 0 var(--plu-space-2);
+}
+
+.pageTable {
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pageRow {
+  display: grid;
+  grid-template-columns: 1fr 0.85fr 0.85fr 0.95fr 0.95fr;
+  gap: var(--plu-space-2);
+  padding: 6px 8px;
+  font-size: 10.5px;
+}
+
+.pageRowHead {
+  background: #334155;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.pageRowAlt {
+  background: #f8fafc;
+}
+
+.pageRowFoot {
+  background: #e2e8f0;
+  color: #000000;
+  font-weight: 700;
+  border-top: 1px solid #cbd5e1;
+}
+
+.pageRowEllipsis {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  color: #94a3b8;
+  padding-block: 2px;
+}
+
+.pageEllipsis {
+  letter-spacing: 2px;
+}
+
+.alignRight {
+  text-align: right;
+}
+
+.pageFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--plu-space-4);
+  padding-top: var(--plu-space-3);
+  border-top: 1px solid #e5e7eb;
+  color: #969696;
+  font-size: 9px;
+}

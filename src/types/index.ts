@@ -65,3 +65,8 @@ export interface FolderCheck {
   writable: boolean;
   hasExistingData: boolean;
 }
+
+export interface ReportSettings {
+  title: string | null;
+  logoDataUrl: string | null;
+}

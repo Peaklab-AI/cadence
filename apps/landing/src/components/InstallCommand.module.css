@@ -1,0 +1,75 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--plu-space-3);
+  padding: var(--plu-space-3) var(--plu-space-3) var(--plu-space-3) var(--plu-space-4);
+  background: var(--plu-color-ink);
+  border-radius: var(--plu-radius-pill);
+  max-width: 100%;
+}
+
+.prompt {
+  color: var(--plu-color-mint);
+  font-family: var(--plu-font-mono);
+  font-size: var(--plu-size-body-sm);
+  flex-shrink: 0;
+}
+
+.command {
+  font-family: var(--plu-font-mono);
+  font-size: var(--plu-size-body-sm);
+  color: var(--plu-text-inverse);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.command::-webkit-scrollbar {
+  display: none;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--plu-radius-pill);
+  border: none;
+  background: rgba(250, 250, 247, 0.12);
+  color: var(--plu-text-inverse-secondary);
+  cursor: pointer;
+  transition: var(--plu-transition-control);
+}
+
+.copyButton:hover {
+  background: rgba(250, 250, 247, 0.2);
+  color: var(--plu-text-inverse);
+}
+
+.copyButton:focus-visible {
+  outline: 2px solid var(--plu-focus-ring);
+  outline-offset: 2px;
+}
+
+.copyButton[data-copied="true"] {
+  color: var(--plu-color-mint);
+}
+
+.iconSwap {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.iconSwap > * {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.iconSwap[data-show="copy"] > .copyIcon,
+.iconSwap[data-show="check"] > .checkIcon {
+  opacity: 1;
+}

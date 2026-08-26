@@ -6,6 +6,9 @@ export interface ProjectPeriodHistory {
   /** "YYYY-MM-DD" (that week's Monday) identity key — see weekStartKey(). */
   periodStartKey: string;
   display: string;
+  /** Exact quantity in the project's own unit (hours/days/weeks) used to compute `amount` — summed across
+   * periods to get a project's total unbilled quantity without re-deriving it from `display` strings. */
+  billedQuantity: number;
   /** rate * quantity for this period, in the project's own unit; null if the project has no rate set. */
   amount: number | null;
   billed: boolean;
@@ -16,11 +19,30 @@ export interface ProjectPeriodHistory {
 export interface ProjectHistory {
   projectId: string;
   projectName: string;
+  clientId: string;
   clientName: string;
   interval: Interval;
   currency: string | null;
   /** Most-recent-first; only periods with any tracked time appear. */
   periods: ProjectPeriodHistory[];
+}
+
+export interface ClientHistoryTotal {
+  currency: string;
+  amount: number;
+}
+
+/** One client's projects, grouped for the History panel — see
+ * groupHistoryByClient(). */
+export interface ClientHistory {
+  clientId: string;
+  clientName: string;
+  /** Same order as produced by summarizeAllHistory: most-recently-logged
+   * project first. */
+  projects: ProjectHistory[];
+  /** Unbilled amount owed by this client, one entry per currency present
+   * among its projects with a rate set — sorted by currency code. */
+  unbilledTotals: ClientHistoryTotal[];
 }
 
 function addDays(date: Date, days: number): Date {
@@ -105,17 +127,16 @@ function summarizePeriodEntries(
   projectEntries: TimeEntry[],
   project: Project,
   now: Date,
-): { display: string; amount: number | null } {
+): { display: string; billedQuantity: number; amount: number | null } {
   let display: string;
-  // Billed quantity in the project's own cadence unit, rounded down to
-  // whole units — an hourly project only bills completed hours (matching
-  // the live tracker's session indicator), while daily/weekly quantities
-  // are already whole units (distinct days/weeks touched).
+  // Billed quantity in the project's own cadence unit — an hourly project
+  // bills the exact elapsed time (fractional hours), while daily/weekly
+  // quantities are already whole units (distinct days/weeks touched).
   let billedQuantity: number;
   if (project.interval === "hourly") {
     const totalSeconds = projectEntries.reduce((sum, e) => sum + entryDurationSeconds(e, now), 0);
     display = formatDuration(totalSeconds);
-    billedQuantity = Math.floor(totalSeconds / 3600);
+    billedQuantity = totalSeconds / 3600;
   } else if (project.interval === "daily") {
     const days = new Set(projectEntries.map((e) => dayKey(new Date(e.startedAt))));
     display = pluralize(days.size, "day");
@@ -128,6 +149,7 @@ function summarizePeriodEntries(
 
   return {
     display,
+    billedQuantity,
     amount: project.rate !== null ? project.rate * billedQuantity : null,
   };
 }
@@ -169,12 +191,13 @@ export function summarizeAllHistory(
     const periods: ProjectPeriodHistory[] = Array.from(byPeriod.entries())
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([key, projectEntries]) => {
-        const { display, amount } = summarizePeriodEntries(projectEntries, project, now);
+        const { display, billedQuantity, amount } = summarizePeriodEntries(projectEntries, project, now);
         const billedRecord = billedByKey.get(`${project.id}::${key}`);
         return {
           periodStart: weekStart(new Date(projectEntries[0].startedAt)),
           periodStartKey: key,
           display,
+          billedQuantity,
           amount,
           billed: billedRecord !== undefined,
           invoiceId: billedRecord?.invoiceId ?? null,
@@ -184,6 +207,7 @@ export function summarizeAllHistory(
     summaries.push({
       projectId: project.id,
       projectName: project.name,
+      clientId: project.clientId,
       clientName: clientNameById.get(project.clientId) ?? "Unknown client",
       interval: project.interval,
       currency: project.currency,
@@ -200,6 +224,75 @@ export function summarizeAllHistory(
       a.projectName.localeCompare(b.projectName),
   );
   return summaries;
+}
+
+/** Total unbilled time and price for one project, across all its unbilled
+ * periods — what's still owed, independent of whether billed periods are
+ * currently shown. Used in the History panel's project header. */
+export function summarizeUnbilledTotal(
+  history: ProjectHistory,
+  project: Project,
+): { display: string; amount: number | null } {
+  const totalQuantity = history.periods
+    .filter((p) => !p.billed)
+    .reduce((sum, p) => sum + p.billedQuantity, 0);
+
+  const display =
+    project.interval === "hourly"
+      ? formatDuration(totalQuantity * 3600)
+      : pluralize(totalQuantity, project.interval === "daily" ? "day" : "week");
+
+  return {
+    display,
+    amount: project.rate !== null ? project.rate * totalQuantity : null,
+  };
+}
+
+/** Groups project histories by client for the History panel, so Paul can see
+ * everything owed by one client together. Each client's unbilled total is
+ * broken out per currency (a client's projects can bill in different
+ * currencies, so amounts in different currencies are never added together
+ * for display). Clients are ordered by total amount owed, highest first —
+ * when a client has amounts in more than one currency, the raw numbers are
+ * summed across currencies purely as an internal sort key, never shown. */
+export function groupHistoryByClient(groups: ProjectHistory[], projects: Project[]): ClientHistory[] {
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  const byClient = new Map<string, ProjectHistory[]>();
+  for (const group of groups) {
+    const list = byClient.get(group.clientId) ?? [];
+    list.push(group);
+    byClient.set(group.clientId, list);
+  }
+
+  const clients: ClientHistory[] = [];
+  for (const [clientId, projectGroups] of byClient) {
+    const totalsByCurrency = new Map<string, number>();
+    for (const group of projectGroups) {
+      const project = projectById.get(group.projectId);
+      if (!project || !group.currency) continue;
+      const { amount } = summarizeUnbilledTotal(group, project);
+      if (amount !== null) {
+        totalsByCurrency.set(group.currency, (totalsByCurrency.get(group.currency) ?? 0) + amount);
+      }
+    }
+
+    clients.push({
+      clientId,
+      clientName: projectGroups[0].clientName,
+      projects: projectGroups,
+      unbilledTotals: Array.from(totalsByCurrency, ([currency, amount]) => ({ currency, amount })).sort((a, b) =>
+        a.currency.localeCompare(b.currency),
+      ),
+    });
+  }
+
+  clients.sort((a, b) => {
+    const sortKeyOf = (c: ClientHistory) => c.unbilledTotals.reduce((sum, t) => sum + t.amount, 0);
+    return sortKeyOf(b) - sortKeyOf(a) || a.clientName.localeCompare(b.clientName);
+  });
+
+  return clients;
 }
 
 /** Drops billed periods from each project, and drops any project left with
@@ -251,8 +344,9 @@ export function buildTimeLogCsv(
     const duration = formatDuration(entry.durationSeconds);
     const cells = [isoDateKey(start), csvTime(start), csvTime(end), duration];
     if (includeAmount) {
-      // Billed in whole completed hours, same rounding rule as the live
-      // tracker indicator and the History summary total.
+      // Per-session amounts stay floored to whole completed hours, matching
+      // the live tracker indicator — unlike the History panel's period and
+      // total amounts, which bill exact fractional hours.
       const billedHours = Math.floor(entry.durationSeconds / 3600);
       cells.push(((project.rate as number) * billedHours).toFixed(2));
     }
@@ -261,4 +355,108 @@ export function buildTimeLogCsv(
   });
 
   return [header, ...rows].join("\n");
+}
+
+/** One itemized row in a PDF report — see buildReportRows(). */
+export interface ReportRow {
+  date: string;
+  start: string;
+  end: string;
+  duration: string;
+  /** Raw seconds behind `duration` — kept alongside the formatted string so
+   * section/report totals can be summed without re-parsing it. */
+  durationSeconds: number;
+  /** Per-entry amount, only computed for hourly-rate projects (see
+   * buildTimeLogCsv's doc comment on why daily/weekly projects don't get a
+   * meaningful per-row figure). */
+  amount: number | null;
+  billed: boolean;
+  invoiceId: string | null;
+  note: string;
+}
+
+/** One project's itemized rows within a report — grouped this way (rather
+ * than one flat list) so the PDF can render a section per client/project for
+ * readability when a report spans more than one. */
+export interface ReportSection {
+  clientName: string;
+  projectName: string;
+  currency: string | null;
+  rows: ReportRow[];
+}
+
+/** Narrows a report to one client and/or project; omitted/null means "all". */
+export interface ReportFilter {
+  clientId?: string | null;
+  projectId?: string | null;
+}
+
+/** Builds the itemized sections for a PDF report covering `[start, end)`,
+ * optionally narrowed by `filter`. Unlike buildTimeLogCsv (one project, one
+ * already-known period), a report's date range can span multiple weekly
+ * billing periods, so each entry's billed status is looked up individually
+ * by its own week rather than being a single value passed in by the caller. */
+export function buildReportRows(
+  entries: TimeEntry[],
+  projects: Project[],
+  clients: Client[],
+  billedPeriods: BilledPeriod[],
+  start: Date,
+  end: Date,
+  filter: ReportFilter = {},
+): ReportSection[] {
+  const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+  const billedByKey = new Map(billedPeriods.map((b) => [`${b.projectId}::${b.periodStart}`, b]));
+
+  const projectsInScope = projects.filter((p) => {
+    if (filter.projectId && p.id !== filter.projectId) return false;
+    if (filter.clientId && p.clientId !== filter.clientId) return false;
+    return true;
+  });
+
+  const sections: ReportSection[] = [];
+  for (const project of projectsInScope) {
+    const closed = entries
+      .filter((e) => e.projectId === project.id && e.endedAt)
+      .filter((e) => {
+        const started = new Date(e.startedAt);
+        return started >= start && started < end;
+      })
+      .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+
+    if (closed.length === 0) continue;
+
+    const includeAmount = project.interval === "hourly" && project.rate !== null;
+    const rows: ReportRow[] = closed.map((entry) => {
+      const entryStart = new Date(entry.startedAt);
+      const entryEnd = new Date(entry.endedAt as string);
+      const billedRecord = billedByKey.get(`${project.id}::${weekStartKey(entryStart)}`);
+      // Floored to whole completed hours, matching buildTimeLogCsv's
+      // per-session amount convention.
+      const billedHours = Math.floor(entry.durationSeconds / 3600);
+      return {
+        date: isoDateKey(entryStart),
+        start: csvTime(entryStart),
+        end: csvTime(entryEnd),
+        duration: formatDuration(entry.durationSeconds),
+        durationSeconds: entry.durationSeconds,
+        amount: includeAmount ? (project.rate as number) * billedHours : null,
+        billed: billedRecord !== undefined,
+        invoiceId: billedRecord?.invoiceId ?? null,
+        note: entry.note ?? "",
+      };
+    });
+
+    sections.push({
+      clientName: clientNameById.get(project.clientId) ?? "Unknown client",
+      projectName: project.name,
+      currency: project.currency,
+      rows,
+    });
+  }
+
+  sections.sort(
+    (a, b) => a.clientName.localeCompare(b.clientName) || a.projectName.localeCompare(b.projectName),
+  );
+  return sections;
 }

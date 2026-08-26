@@ -68,10 +68,19 @@ impl Interval {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub active_entry_id: Option<String>,
+    /// Custom title shown at the top of generated PDF reports; `None` falls
+    /// back to "Time report" in the frontend rather than being persisted
+    /// as that literal string.
+    #[serde(default)]
+    pub report_title: Option<String>,
+    /// Data URL (e.g. "data:image/png;base64,...") of a logo image shown at
+    /// the top of generated PDF reports.
+    #[serde(default)]
+    pub report_logo_data_url: Option<String>,
 }
 
 /// Records that a project's tracked time for one calendar week has been
@@ -111,9 +120,7 @@ impl Default for AppData {
             projects: Vec::new(),
             time_entries: Vec::new(),
             billed_periods: Vec::new(),
-            settings: Settings {
-                active_entry_id: None,
-            },
+            settings: Settings::default(),
         }
     }
 }
