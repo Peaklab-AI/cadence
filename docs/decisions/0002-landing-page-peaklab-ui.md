@@ -35,3 +35,9 @@ Existing page content and information architecture (hero + install CTA + faithfu
 - The `@peaklab/ui` dependency being `link:../peaklab-ui` means a clean checkout of `cadence` alone cannot build the landing page without `../peaklab-ui` also present on disk (relative sibling). This is a real coupling to flag for CI/deploy — the release pipeline (or `scripts/release.sh`) must either check out `peaklab-ui` alongside `cadence`, or the dependency must be switched to a registry-resolved version (see Alternatives) before landing is deployed from a standalone checkout.
 - Future landing-page changes should consume `peaklab-ui` components/tokens rather than writing new bespoke CSS, matching the rest of the org's convention.
 - `src/style.css`'s hand-rolled pointer-glow background effect is replaced by `peaklab-ui`'s `GradientBackground`, per `DESIGN.md`'s "don't build ad hoc alternatives" guidance for background treatments.
+
+## Update — 2026-08-26: `link:` dependency broke the Vercel deploy
+
+As predicted above, `apps/landing`'s Vercel build failed (`Rollup failed to resolve import "@peaklab/ui/styles.css"`) once `36f19dc` shipped: Vercel only clones `cadence` itself, so the `link:../../../peaklab-ui` sibling path didn't exist in `/vercel/path0`.
+
+Resolved by vendoring `peaklab-ui`'s built `dist/` into this repo as a local workspace package (`packages/peaklab-ui`, see its `README.md` for update instructions), rather than switching to the private registry — no `GITHUB_TOKEN` is available in this environment yet. `apps/landing`'s dependency is now `"@peaklab/ui": "workspace:*"`. Revisit the registry option (original preferred alternative, above) once a `read:packages` token can be provisioned in Vercel's project settings; that would let `packages/peaklab-ui` be dropped in favor of a normal semver range.

@@ -1,0 +1,33 @@
+{
+  "name": "@peaklab/ui",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./styles.css": "./dist/index.css",
+    "./styles-core.css": "./dist/styles-core.css",
+    "./reset.css": "./dist/reset.css",
+    "./favicon.svg": "./dist/favicon.svg",
+    "./favicon.ico": "./dist/favicon.ico",
+    "./apple-touch-icon.png": "./dist/apple-touch-icon.png",
+    "./og-image.png": "./dist/og-image.png"
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "clsx": "^2.0.0",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.0.0 || ^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

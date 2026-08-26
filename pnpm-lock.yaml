@@ -103,8 +103,8 @@ importers:
   apps/landing:
     dependencies:
       '@peaklab/ui':
-        specifier: link:../../../peaklab-ui
-        version: link:../../../peaklab-ui
+        specifier: workspace:*
+        version: link:../../packages/peaklab-ui
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -139,6 +139,24 @@ importers:
       vite:
         specifier: ^7.0.4
         version: 7.3.6(@types/node@22.20.1)(jiti@1.21.7)
+
+  packages/peaklab-ui:
+    dependencies:
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+      framer-motion:
+        specifier: ^12.0.0
+        version: 12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      lucide-react:
+        specifier: ^0.0.0 || ^1.0.0
+        version: 1.34.0(react@19.2.7)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
 
 packages:
 
@@ -1432,6 +1450,11 @@ packages:
 
   lucide-react@0.563.0:
     resolution: {integrity: sha512-8dXPB2GI4dI8jV4MgUDGBeLdGk8ekfqVZ0BdLcrRzocGgG75ltNEmWS+gE7uokKF/0oSUuczNDT+g9hFJ23FkA==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lucide-react@1.34.0:
+    resolution: {integrity: sha512-vnjGJNI7Htk5+oWW8gXGuaLgwgAb0T6/iZbBrp9JCfRFwdNWZ0YTm3eyxjOLgwN6r8iyAf3UA70zNmBRBNv7yg==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -3213,6 +3236,10 @@ snapshots:
       yallist: 3.1.1
 
   lucide-react@0.563.0(react@19.2.7):
+    dependencies:
+      react: 19.2.7
+
+  lucide-react@1.34.0(react@19.2.7):
     dependencies:
       react: 19.2.7
 

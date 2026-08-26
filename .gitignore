@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Vendored @peaklab/ui build output is checked in on purpose (see
+# packages/peaklab-ui/README.md) — exempt it from the blanket "dist" ignore.
+!packages/peaklab-ui/dist/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
