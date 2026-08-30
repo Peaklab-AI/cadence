@@ -41,6 +41,20 @@ const FAQ_ITEMS = FAQS.map((faq, index) => ({
   content: faq.answer,
 }));
 
+// Derived from FAQS so the rich-result markup can't drift from the visible copy.
+const FAQ_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQS.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
+
 export function FAQ() {
   return (
     <section id="faq" className={styles.section}>
@@ -48,6 +62,7 @@ export function FAQ() {
         <SectionHeader title="Frequently asked questions" />
         <Accordion items={FAQ_ITEMS} className={styles.accordion} />
       </Container>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }} />
     </section>
   );
 }
