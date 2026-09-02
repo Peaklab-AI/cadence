@@ -1,5 +1,20 @@
 import type { BilledPeriod, Client, Interval, Project, TimeEntry } from "../types";
 
+/** One project's tracked time within a single calendar day — the finer
+ * billing unit nested inside a week for hourly/daily-interval projects (see
+ * ProjectPeriodHistory.days). Not used for weekly-interval projects, whose
+ * rate is defined per week and can't be meaningfully split by day. */
+export interface ProjectDayHistory {
+  day: Date;
+  /** "YYYY-MM-DD" for this specific day — see billedPeriodKeyFor(). */
+  dayKey: string;
+  display: string;
+  billedQuantity: number;
+  amount: number | null;
+  billed: boolean;
+  invoiceId: string | null;
+}
+
 /** One project's tracked time within a single week. */
 export interface ProjectPeriodHistory {
   periodStart: Date;
@@ -11,9 +26,15 @@ export interface ProjectPeriodHistory {
   billedQuantity: number;
   /** rate * quantity for this period, in the project's own unit; null if the project has no rate set. */
   amount: number | null;
+  /** For hourly/daily-interval projects (where `days` is populated): true only when every day in the week is
+   * billed. For weekly-interval projects (`days` is null): reflects the single week-level BilledPeriod record. */
   billed: boolean;
-  /** Optional client-facing invoice reference; null when unbilled or not yet set. */
+  /** Optional client-facing invoice reference; null when unbilled, not yet set, or (hourly/daily) when the
+   * week's billed days don't all share the same invoice ID. */
   invoiceId: string | null;
+  /** Per-day breakdown for hourly/daily-interval projects, most-recent-first within the week; null for
+   * weekly-interval projects, whose billing can't be split finer than the week itself. */
+  days: ProjectDayHistory[] | null;
 }
 
 export interface ProjectHistory {
@@ -80,6 +101,16 @@ function isoDateKey(date: Date): string {
  * most-recent-first. */
 export function weekStartKey(anchor: Date): string {
   return isoDateKey(weekStart(anchor));
+}
+
+/** The BilledPeriod lookup/write key for one entry, at whatever granularity
+ * its project bills at: the week's Monday for weekly-interval projects
+ * (a flat weekly rate can't be split by day), or the entry's own day
+ * otherwise. Single source of truth so History panel selection, CSV export,
+ * and PDF reports all agree on which key a given project's billing lives
+ * under. */
+export function billedPeriodKeyFor(project: Project, date: Date): string {
+  return project.interval === "weekly" ? weekStartKey(date) : isoDateKey(date);
 }
 
 /** True when `anchor` falls in the same week as `now` — used to label the
@@ -154,6 +185,62 @@ function summarizePeriodEntries(
   };
 }
 
+/** Computes the display string and billed amount for one project's entries
+ * within a single day — the hourly/daily-interval equivalent of
+ * summarizePeriodEntries, one cadence level down. Never called for
+ * weekly-interval projects (see ProjectPeriodHistory.days). */
+function summarizeDayEntries(
+  dayEntries: TimeEntry[],
+  project: Project,
+  now: Date,
+): { display: string; billedQuantity: number; amount: number | null } {
+  if (project.interval === "hourly") {
+    const totalSeconds = dayEntries.reduce((sum, e) => sum + entryDurationSeconds(e, now), 0);
+    return {
+      display: formatDuration(totalSeconds),
+      billedQuantity: totalSeconds / 3600,
+      amount: project.rate !== null ? project.rate * (totalSeconds / 3600) : null,
+    };
+  }
+  // daily: any entries at all mean this day counts as one billed unit.
+  return { display: "1 day", billedQuantity: 1, amount: project.rate };
+}
+
+/** Builds the per-day breakdown for one week's worth of a project's entries
+ * (hourly/daily-interval only — see ProjectPeriodHistory.days), most-recent
+ * day first, each joined against `billedByKey` by its own day key. */
+function summarizePeriodDays(
+  periodEntries: TimeEntry[],
+  project: Project,
+  billedByKey: Map<string, BilledPeriod>,
+  now: Date,
+): ProjectDayHistory[] {
+  const byDay = new Map<string, TimeEntry[]>();
+  for (const entry of periodEntries) {
+    const key = isoDateKey(new Date(entry.startedAt));
+    const list = byDay.get(key) ?? [];
+    list.push(entry);
+    byDay.set(key, list);
+  }
+
+  return Array.from(byDay.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([dayKeyStr, dayEntries]) => {
+      const { display, billedQuantity, amount } = summarizeDayEntries(dayEntries, project, now);
+      const billedRecord = billedByKey.get(`${project.id}::${dayKeyStr}`);
+      const entryStart = new Date(dayEntries[0].startedAt);
+      return {
+        day: new Date(entryStart.getFullYear(), entryStart.getMonth(), entryStart.getDate()),
+        dayKey: dayKeyStr,
+        display,
+        billedQuantity,
+        amount,
+        billed: billedRecord !== undefined,
+        invoiceId: billedRecord?.invoiceId ?? null,
+      };
+    });
+}
+
 /** Groups ALL tracked time (no date-range filter — the History panel always
  * shows everything) per project, bucketed by week. Each project's periods
  * are sorted most-recent-first, and each period's `billed` flag reflects
@@ -192,15 +279,33 @@ export function summarizeAllHistory(
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([key, projectEntries]) => {
         const { display, billedQuantity, amount } = summarizePeriodEntries(projectEntries, project, now);
-        const billedRecord = billedByKey.get(`${project.id}::${key}`);
+
+        if (project.interval === "weekly") {
+          const billedRecord = billedByKey.get(`${project.id}::${key}`);
+          return {
+            periodStart: weekStart(new Date(projectEntries[0].startedAt)),
+            periodStartKey: key,
+            display,
+            billedQuantity,
+            amount,
+            billed: billedRecord !== undefined,
+            invoiceId: billedRecord?.invoiceId ?? null,
+            days: null,
+          };
+        }
+
+        const days = summarizePeriodDays(projectEntries, project, billedByKey, now);
+        const billed = days.length > 0 && days.every((d) => d.billed);
+        const invoiceIds = new Set(days.filter((d) => d.billed).map((d) => d.invoiceId));
         return {
           periodStart: weekStart(new Date(projectEntries[0].startedAt)),
           periodStartKey: key,
           display,
           billedQuantity,
           amount,
-          billed: billedRecord !== undefined,
-          invoiceId: billedRecord?.invoiceId ?? null,
+          billed,
+          invoiceId: billed && invoiceIds.size === 1 ? [...invoiceIds][0] : null,
+          days,
         };
       });
 
@@ -233,9 +338,13 @@ export function summarizeUnbilledTotal(
   history: ProjectHistory,
   project: Project,
 ): { display: string; amount: number | null } {
-  const totalQuantity = history.periods
-    .filter((p) => !p.billed)
-    .reduce((sum, p) => sum + p.billedQuantity, 0);
+  // Periods with a `days` breakdown (hourly/daily-interval) can be partially
+  // billed, so their unbilled contribution is the sum of their unbilled
+  // days, not an all-or-nothing check on the whole week.
+  const totalQuantity = history.periods.reduce((sum, p) => {
+    if (p.days) return sum + p.days.filter((d) => !d.billed).reduce((s, d) => s + d.billedQuantity, 0);
+    return p.billed ? sum : sum + p.billedQuantity;
+  }, 0);
 
   const display =
     project.interval === "hourly"
@@ -295,12 +404,18 @@ export function groupHistoryByClient(groups: ProjectHistory[], projects: Project
   return clients;
 }
 
-/** Drops billed periods from each project, and drops any project left with
- * no periods at all — used by the History panel to hide settled work by
- * default. */
+/** Drops fully-billed periods from each project (also dropping any already-
+ * billed days from a still-partially-unbilled period's `days` list), and
+ * drops any project left with no periods at all — used by the History panel
+ * to hide settled work by default. */
 export function hideBilledPeriods(groups: ProjectHistory[]): ProjectHistory[] {
   return groups
-    .map((g) => ({ ...g, periods: g.periods.filter((p) => !p.billed) }))
+    .map((g) => ({
+      ...g,
+      periods: g.periods
+        .filter((p) => !p.billed)
+        .map((p) => (p.days ? { ...p, days: p.days.filter((d) => !d.billed) } : p)),
+    }))
     .filter((g) => g.periods.length > 0);
 }
 
@@ -320,15 +435,12 @@ function csvCell(value: string): string {
  * duration yet. An Amount column is only meaningful for hourly-rate
  * projects — daily/weekly projects bill a flat amount per day/week
  * regardless of session count, so a per-row figure would be misleading.
- * `billed`/`invoiceId` reflect whether the whole period being exported has
- * been marked billed and its invoice reference — the same values for every
- * row, since `entries` is already filtered down to one period by the caller. */
-export function buildTimeLogCsv(
-  entries: TimeEntry[],
-  project: Project,
-  billed: boolean,
-  invoiceId: string | null,
-): string {
+ * `billed`/`invoiceId` are looked up per row via `billedPeriodKeyFor` —
+ * weekly-interval projects bill (and so are exported) one week at a time, so
+ * every row shares the same value, but hourly/daily-interval projects can
+ * have different days within the same export billed independently. */
+export function buildTimeLogCsv(entries: TimeEntry[], project: Project, billedPeriods: BilledPeriod[]): string {
+  const billedByKey = new Map(billedPeriods.map((b) => [`${b.projectId}::${b.periodStart}`, b]));
   const closed = entries
     .filter((e) => e.projectId === project.id && e.endedAt)
     .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
@@ -342,6 +454,7 @@ export function buildTimeLogCsv(
     const start = new Date(entry.startedAt);
     const end = new Date(entry.endedAt as string);
     const duration = formatDuration(entry.durationSeconds);
+    const billedRecord = billedByKey.get(`${project.id}::${billedPeriodKeyFor(project, start)}`);
     const cells = [isoDateKey(start), csvTime(start), csvTime(end), duration];
     if (includeAmount) {
       // Per-session amounts stay floored to whole completed hours, matching
@@ -350,7 +463,7 @@ export function buildTimeLogCsv(
       const billedHours = Math.floor(entry.durationSeconds / 3600);
       cells.push(((project.rate as number) * billedHours).toFixed(2));
     }
-    cells.push(billed ? "Yes" : "No", csvCell(invoiceId ?? ""), csvCell(entry.note ?? ""));
+    cells.push(billedRecord !== undefined ? "Yes" : "No", csvCell(billedRecord?.invoiceId ?? ""), csvCell(entry.note ?? ""));
     return cells.join(",");
   });
 
@@ -392,10 +505,10 @@ export interface ReportFilter {
 }
 
 /** Builds the itemized sections for a PDF report covering `[start, end)`,
- * optionally narrowed by `filter`. Unlike buildTimeLogCsv (one project, one
- * already-known period), a report's date range can span multiple weekly
+ * optionally narrowed by `filter`. A report's date range can span multiple
  * billing periods, so each entry's billed status is looked up individually
- * by its own week rather than being a single value passed in by the caller. */
+ * via `billedPeriodKeyFor` rather than being a single value passed in by the
+ * caller. */
 export function buildReportRows(
   entries: TimeEntry[],
   projects: Project[],
@@ -430,7 +543,7 @@ export function buildReportRows(
     const rows: ReportRow[] = closed.map((entry) => {
       const entryStart = new Date(entry.startedAt);
       const entryEnd = new Date(entry.endedAt as string);
-      const billedRecord = billedByKey.get(`${project.id}::${weekStartKey(entryStart)}`);
+      const billedRecord = billedByKey.get(`${project.id}::${billedPeriodKeyFor(project, entryStart)}`);
       // Floored to whole completed hours, matching buildTimeLogCsv's
       // per-session amount convention.
       const billedHours = Math.floor(entry.durationSeconds / 3600);

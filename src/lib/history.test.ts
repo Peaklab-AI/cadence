@@ -3,6 +3,7 @@ import {
   weekStart,
   weekEnd,
   weekStartKey,
+  billedPeriodKeyFor,
   isCurrentWeek,
   weekLabel,
   formatDuration,
@@ -77,6 +78,21 @@ describe("weekStartKey", () => {
     const thisWeek = weekStartKey(new Date(2026, 6, 8));
     const nextWeek = weekStartKey(new Date(2026, 6, 15));
     expect(thisWeek < nextWeek).toBe(true);
+  });
+});
+
+describe("billedPeriodKeyFor", () => {
+  it("uses the week's Monday for a weekly-interval project", () => {
+    const project = makeProject({ interval: "weekly" });
+    // 2026-07-08 is a Wednesday.
+    expect(billedPeriodKeyFor(project, new Date(2026, 6, 8))).toBe("2026-07-06");
+  });
+
+  it("uses the entry's own day for hourly/daily-interval projects", () => {
+    const hourly = makeProject({ interval: "hourly" });
+    const daily = makeProject({ interval: "daily" });
+    expect(billedPeriodKeyFor(hourly, new Date(2026, 6, 8))).toBe("2026-07-08");
+    expect(billedPeriodKeyFor(daily, new Date(2026, 6, 8))).toBe("2026-07-08");
   });
 });
 
@@ -256,6 +272,62 @@ describe("summarizeAllHistory", () => {
 
     expect(result.map((r) => r.projectId)).toEqual(["p2", "p1", "p3"]);
   });
+
+  it("gives weekly-interval periods no day breakdown", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "weekly", rate: 200 })];
+    const entries = [makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00" })];
+
+    const [period] = summarizeAllHistory(entries, projects, clients, [])[0].periods;
+
+    expect(period.days).toBeNull();
+  });
+
+  it("splits an hourly-interval week into a per-day breakdown, most recent day first", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      // Monday: two sessions totalling 2h. Tuesday: 1h.
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-06T14:00:00", endedAt: "2026-07-06T15:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e3", projectId: "p1", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00", durationSeconds: 3600 }),
+    ];
+
+    const [period] = summarizeAllHistory(entries, projects, clients, [])[0].periods;
+
+    expect(period.days).toHaveLength(2);
+    expect(period.days![0].dayKey).toBe("2026-07-07");
+    expect(period.days![0].display).toBe("1h 0m");
+    expect(period.days![0].amount).toBe(100);
+    expect(period.days![1].dayKey).toBe("2026-07-06");
+    expect(period.days![1].display).toBe("2h 0m");
+    expect(period.days![1].amount).toBe(200);
+  });
+
+  it("marks a period billed only when every day is billed, sharing the invoice id when uniform", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00" }),
+    ];
+    const oneDayBilled: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: "INV-1" },
+    ];
+    const bothDaysBilled: BilledPeriod[] = [
+      ...oneDayBilled,
+      { id: "b2", projectId: "p1", periodStart: "2026-07-07", billedAt: "2026-07-10T00:00:00", invoiceId: "INV-1" },
+    ];
+
+    const [partial] = summarizeAllHistory(entries, projects, clients, oneDayBilled)[0].periods;
+    expect(partial.billed).toBe(false);
+    expect(partial.invoiceId).toBeNull();
+    expect(partial.days!.filter((d) => d.billed)).toHaveLength(1);
+
+    const [full] = summarizeAllHistory(entries, projects, clients, bothDaysBilled)[0].periods;
+    expect(full.billed).toBe(true);
+    expect(full.invoiceId).toBe("INV-1");
+  });
 });
 
 describe("hideBilledPeriods", () => {
@@ -304,6 +376,25 @@ describe("hideBilledPeriods", () => {
     const result = hideBilledPeriods(groups);
 
     expect(result).toEqual(groups);
+  });
+
+  it("drops only the billed days from a partially-billed hourly-interval week, keeping the rest", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00" }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const groups = summarizeAllHistory(entries, projects, clients, billedPeriods);
+    const [result] = hideBilledPeriods(groups);
+
+    expect(result.periods).toHaveLength(1);
+    expect(result.periods[0].days).toHaveLength(1);
+    expect(result.periods[0].days![0].dayKey).toBe("2026-07-07");
   });
 });
 
@@ -421,6 +512,25 @@ describe("summarizeUnbilledTotal", () => {
     expect(result.display).toBe("1 day");
     expect(result.amount).toBeNull();
   });
+
+  it("counts only the unbilled days of a partially-billed hourly-interval week — the 'billed Monday, not today' case", () => {
+    const clients = [makeClient()];
+    const project = makeProject({ id: "p1", interval: "hourly", rate: 100 });
+    const entries = [
+      // Monday: 1h, billed. Tuesday: 2h, unbilled.
+      makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T11:00:00", durationSeconds: 7200 }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const [history] = summarizeAllHistory(entries, [project], clients, billedPeriods);
+    const result = summarizeUnbilledTotal(history, project);
+
+    expect(result.display).toBe("2h 0m");
+    expect(result.amount).toBe(200);
+  });
 });
 
 describe("buildTimeLogCsv", () => {
@@ -429,9 +539,9 @@ describe("buildTimeLogCsv", () => {
     const daily = makeProject({ interval: "daily", rate: 50 });
     const hourlyNoRate = makeProject({ interval: "hourly", rate: null });
 
-    expect(buildTimeLogCsv([], hourlyWithRate, false, null).split("\n")[0]).toContain("Amount");
-    expect(buildTimeLogCsv([], daily, false, null).split("\n")[0]).not.toContain("Amount");
-    expect(buildTimeLogCsv([], hourlyNoRate, false, null).split("\n")[0]).not.toContain("Amount");
+    expect(buildTimeLogCsv([], hourlyWithRate, []).split("\n")[0]).toContain("Amount");
+    expect(buildTimeLogCsv([], daily, []).split("\n")[0]).not.toContain("Amount");
+    expect(buildTimeLogCsv([], hourlyNoRate, []).split("\n")[0]).not.toContain("Amount");
   });
 
   it("excludes the still-open entry and sorts rows chronologically", () => {
@@ -442,7 +552,7 @@ describe("buildTimeLogCsv", () => {
       makeEntry({ id: "open", startedAt: "2026-07-08T09:00:00", endedAt: null, durationSeconds: 0 }),
     ];
 
-    const rows = buildTimeLogCsv(entries, project, false, null).split("\n").slice(1);
+    const rows = buildTimeLogCsv(entries, project, []).split("\n").slice(1);
 
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain("2026-07-06");
@@ -455,23 +565,46 @@ describe("buildTimeLogCsv", () => {
       makeEntry({ note: 'said "hi", then left' }),
     ];
 
-    const csv = buildTimeLogCsv(entries, project, false, null);
+    const csv = buildTimeLogCsv(entries, project, []);
 
     expect(csv).toContain('"said ""hi"", then left"');
   });
 
-  it("rounds down to completed hours for the Amount column and repeats billed/invoiceId on every row", () => {
-    const project = makeProject({ interval: "hourly", rate: 100 });
+  it("rounds down to completed hours for the Amount column and looks up billed/invoiceId per row's own day", () => {
+    const project = makeProject({ id: "p1", interval: "hourly", rate: 100 });
     const entries = [
-      makeEntry({ id: "e1", durationSeconds: 5400 }), // 1h30m -> bills 1 hour
+      // 2026-07-06 is a Monday.
+      makeEntry({ id: "e1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:30:00", durationSeconds: 5400 }), // 1h30m -> bills 1 hour
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: "INV-9" },
     ];
 
-    const csv = buildTimeLogCsv(entries, project, true, "INV-9");
+    const csv = buildTimeLogCsv(entries, project, billedPeriods);
     const row = csv.split("\n")[1];
 
     expect(row).toContain("100.00");
     expect(row).toContain("Yes");
     expect(row).toContain('"INV-9"');
+  });
+
+  it("bills different days within the same export independently for an hourly project", () => {
+    const project = makeProject({ id: "p1", interval: "hourly", rate: 100 });
+    const entries = [
+      // Monday and Tuesday of the same week.
+      makeEntry({ id: "mon", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "tue", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00", durationSeconds: 3600 }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: null },
+    ];
+
+    const rows = buildTimeLogCsv(entries, project, billedPeriods).split("\n").slice(1);
+
+    expect(rows[0]).toContain("2026-07-06");
+    expect(rows[0]).toContain("Yes");
+    expect(rows[1]).toContain("2026-07-07");
+    expect(rows[1]).toContain("No");
   });
 });
 
@@ -539,6 +672,32 @@ describe("buildReportRows", () => {
     expect(week1.invoiceId).toBe("INV-1");
     expect(week2.billed).toBe(false);
     expect(week2.invoiceId).toBeNull();
+  });
+
+  it("bills different days of the same week independently for an hourly-interval project", () => {
+    const clients = [makeClient()];
+    const projects = [makeProject({ id: "p1", interval: "hourly", rate: 100 })];
+    const entries = [
+      makeEntry({ id: "mon", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00" }),
+      makeEntry({ id: "tue", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00" }),
+    ];
+    const billedPeriods: BilledPeriod[] = [
+      { id: "b1", projectId: "p1", periodStart: "2026-07-06", billedAt: "2026-07-10T00:00:00", invoiceId: "INV-1" },
+    ];
+
+    const [section] = buildReportRows(
+      entries,
+      projects,
+      clients,
+      billedPeriods,
+      new Date(2026, 6, 6),
+      new Date(2026, 6, 13),
+    );
+
+    const monday = section.rows.find((r) => r.date === "2026-07-06")!;
+    const tuesday = section.rows.find((r) => r.date === "2026-07-07")!;
+    expect(monday.billed).toBe(true);
+    expect(tuesday.billed).toBe(false);
   });
 
   it("only computes a per-row amount for hourly projects with a rate", () => {

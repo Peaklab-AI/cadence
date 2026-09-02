@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Download, FileText, Plus } from "lucide-react";
 import { listBilledPeriods, listTimeEntries, saveTextFile } from "../lib/tauriCommands";
-import { buildTimeLogCsv, formatDuration, weekEnd, weekStart, weekStartKey, weekLabel } from "../lib/history";
+import {
+  billedPeriodKeyFor,
+  buildTimeLogCsv,
+  formatDuration,
+  weekEnd,
+  weekStart,
+  weekLabel,
+} from "../lib/history";
 import { toErrorMessage } from "../lib/errors";
 import type { BilledPeriod, Project, TimeEntry } from "../types";
 import { Badge } from "./ui/Badge";
@@ -54,9 +61,13 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
   const now = new Date();
   const start = weekStart(anchor);
   const end = weekEnd(anchor);
-  const billedRecord = (billedPeriods ?? []).find(
-    (b) => b.projectId === project.id && b.periodStart === weekStartKey(anchor),
-  );
+  const billedByKey = new Map((billedPeriods ?? []).map((b) => [`${b.projectId}::${b.periodStart}`, b]));
+  const billedRecordFor = (date: Date) => billedByKey.get(`${project.id}::${billedPeriodKeyFor(project, date)}`);
+  // Weekly-interval projects bill (and so are billed-shown) one flat record
+  // per week. Hourly/daily-interval projects bill per day, so there's no
+  // single record for the whole week — each entry's own day is looked up
+  // individually below instead.
+  const billedRecord = project.interval === "weekly" ? billedRecordFor(anchor) : undefined;
   const billed = billedRecord !== undefined;
   const closedEntries =
     entries
@@ -75,7 +86,7 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
         const started = new Date(e.startedAt);
         return started >= start && started < end;
       });
-      const csv = buildTimeLogCsv(inPeriod, project, billed, billedRecord?.invoiceId ?? null);
+      const csv = buildTimeLogCsv(inPeriod, project, billedPeriods ?? []);
       const filename = `${project.name} — ${weekLabel(anchor, now)}.csv`;
       const path = await saveTextFile(filename, csv);
       setSavedPath(path);
@@ -131,6 +142,10 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
           {closedEntries.map((entry) => {
             const entryStart = new Date(entry.startedAt);
             const entryEnd = new Date(entry.endedAt as string);
+            // Weekly-interval projects already show one badge for the whole
+            // week above; only hourly/daily projects need a per-entry
+            // indicator, since their billed status can differ by day.
+            const entryBilled = project.interval !== "weekly" && billedRecordFor(entryStart) !== undefined;
             return (
               <button
                 key={entry.id}
@@ -139,7 +154,14 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
                 className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-900">{logDate(entryStart)}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-medium text-slate-900">{logDate(entryStart)}</p>
+                    {entryBilled && (
+                      <Badge colorScheme="success" className="py-0">
+                        <Check size={10} /> Billed
+                      </Badge>
+                    )}
+                  </div>
                   <p className="mt-0.5 truncate text-xs text-slate-400">
                     {logTime(entryStart)} – {logTime(entryEnd)}
                   </p>

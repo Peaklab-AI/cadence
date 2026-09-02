@@ -22,6 +22,7 @@ A plan is not just a task list — it's a record that design forks were surfaced
 | Feature | Status | Date |
 |---------|--------|------|
 | [Add tests for current logic](add-tests.md) | Done | 2026-07-28 |
+| [Day-level billing within a week](day-level-billing-within-week.md) | Done | 2026-09-02 |
 | [Group History panel by client](history-client-grouping.md) | Done | 2026-08-26 |
 | [Landing page — full agency-style composition](landing-page-agency-composition.md) | Done | 2026-08-26 |
 | [PDF time-log report for a date range](pdf-report-for-date-range.md) | Done | 2026-08-26 |

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clock, FileDown, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock, FileDown, X } from "lucide-react";
 import {
   getReportSettings,
   listBilledPeriods,
@@ -16,7 +16,6 @@ import {
   groupHistoryByClient,
   buildReportRows,
   type ClientHistory,
-  type ProjectPeriodHistory,
 } from "../lib/history";
 import { buildTimeLogPdf } from "../lib/pdfReport";
 import type { ReportSettings } from "../types";
@@ -39,6 +38,11 @@ function parseDateInput(value: string): Date {
   return new Date(year, month - 1, day);
 }
 
+/** Short label for one day within an expanded week, e.g. "Mon, Sep 1". */
+function dayHeading(date: Date): string {
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 function sanitizeForFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, "-");
 }
@@ -58,6 +62,10 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Which weeks (keyed `${projectId}::${periodStartKey}`) are expanded to
+  // show their day-by-day breakdown — only meaningful for hourly/daily-
+  // interval projects (weekly-interval periods have no `days` to expand).
+  const [expandedPeriods, setExpandedPeriods] = useState<Set<string>>(new Set());
   // Marking billed happens once per client per currency (covering every
   // currently-unbilled period across that client's projects sharing the
   // currency), rather than one at a time per period — a client's invoice
@@ -69,6 +77,12 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
   );
   const [clientInvoiceDraft, setClientInvoiceDraft] = useState("");
   const [clientBusyKey, setClientBusyKey] = useState<string | null>(null);
+  // Which unbilled periods (within the client+currency currently being
+  // edited) are checked for this bulk mark — keyed the same as busyKey,
+  // `${projectId}::${periodStartKey}`. Defaults to "all" when the editor
+  // opens (matching the old all-or-nothing behavior), but Paul can uncheck
+  // periods he's already billed outside the app before confirming.
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
   // Separate from `toggleError` (which is scoped to mark/unmark-billed
   // actions and gets cleared the moment any of those runs) so a failed
@@ -109,10 +123,10 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
     loadHistory();
   }, [loadHistory]);
 
-  function openEditor(key: string, period: ProjectPeriodHistory) {
+  function openEditor(key: string, invoiceId: string | null) {
     setToggleError(null);
     setEditingKey(key);
-    setInvoiceDraft(period.invoiceId ?? "");
+    setInvoiceDraft(invoiceId ?? "");
   }
 
   function closeEditor() {
@@ -120,12 +134,15 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
     setInvoiceDraft("");
   }
 
-  async function handleSaveBilled(project: Project, period: ProjectPeriodHistory) {
-    const key = `${project.id}::${period.periodStartKey}`;
+  /** Marks/unmarks a single billing unit — a week for weekly-interval
+   * projects, a day for hourly/daily-interval projects (see
+   * `billedPeriodKeyFor` in history.ts, the same key shape used here). */
+  async function handleSaveBilled(projectId: string, periodStartKey: string) {
+    const key = `${projectId}::${periodStartKey}`;
     setBusyKey(key);
     setToggleError(null);
     try {
-      await markPeriodBilled(project.id, period.periodStartKey, invoiceDraft.trim() || null);
+      await markPeriodBilled(projectId, periodStartKey, invoiceDraft.trim() || null);
       setBilledPeriods(await listBilledPeriods());
       closeEditor();
     } catch (err) {
@@ -135,12 +152,12 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
     }
   }
 
-  async function handleUnmarkBilled(project: Project, period: ProjectPeriodHistory) {
-    const key = `${project.id}::${period.periodStartKey}`;
+  async function handleUnmarkBilled(projectId: string, periodStartKey: string) {
+    const key = `${projectId}::${periodStartKey}`;
     setBusyKey(key);
     setToggleError(null);
     try {
-      await unmarkPeriodBilled(project.id, period.periodStartKey);
+      await unmarkPeriodBilled(projectId, periodStartKey);
       setBilledPeriods(await listBilledPeriods());
       closeEditor();
     } catch (err) {
@@ -150,15 +167,54 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
     }
   }
 
-  function openClientEditor(clientId: string, currency: string) {
+  function toggleExpanded(key: string) {
+    setExpandedPeriods((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /** Every unbilled-period key for one client+currency — a week key
+   * (`${projectId}::${periodStartKey}`) for weekly-interval projects, or one
+   * day key (`${projectId}::${dayKey}`) per unbilled day for hourly/daily-
+   * interval projects. The default "select all" state when the bulk editor
+   * opens, and what "All" resets the selection back to. */
+  function unbilledKeysFor(clientGroup: ClientHistory, currency: string): string[] {
+    return clientGroup.projects
+      .filter((group) => group.currency === currency)
+      .flatMap((group) =>
+        group.periods.flatMap((p) =>
+          p.days
+            ? p.days.filter((d) => !d.billed).map((d) => `${group.projectId}::${d.dayKey}`)
+            : p.billed
+              ? []
+              : [`${group.projectId}::${p.periodStartKey}`],
+        ),
+      );
+  }
+
+  function openClientEditor(clientGroup: ClientHistory, currency: string) {
     setToggleError(null);
-    setEditingClientCurrency({ clientId, currency });
+    setEditingClientCurrency({ clientId: clientGroup.clientId, currency });
     setClientInvoiceDraft("");
+    setSelectedPeriods(new Set(unbilledKeysFor(clientGroup, currency)));
   }
 
   function closeClientEditor() {
     setEditingClientCurrency(null);
     setClientInvoiceDraft("");
+    setSelectedPeriods(new Set());
+  }
+
+  function togglePeriodSelection(key: string) {
+    setSelectedPeriods((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   async function handleMarkClientBilled(clientGroup: ClientHistory, currency: string) {
@@ -169,7 +225,17 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
       const invoiceId = clientInvoiceDraft.trim() || null;
       const targets = clientGroup.projects
         .filter((group) => group.currency === currency)
-        .flatMap((group) => group.periods.filter((p) => !p.billed).map((p) => ({ projectId: group.projectId, periodStartKey: p.periodStartKey })));
+        .flatMap((group) =>
+          group.periods.flatMap((p) =>
+            p.days
+              ? p.days
+                  .filter((d) => !d.billed && selectedPeriods.has(`${group.projectId}::${d.dayKey}`))
+                  .map((d) => ({ projectId: group.projectId, periodStartKey: d.dayKey }))
+              : !p.billed && selectedPeriods.has(`${group.projectId}::${p.periodStartKey}`)
+                ? [{ projectId: group.projectId, periodStartKey: p.periodStartKey }]
+                : [],
+          ),
+        );
       await Promise.all(targets.map((t) => markPeriodBilled(t.projectId, t.periodStartKey, invoiceId)));
       setBilledPeriods(await listBilledPeriods());
       closeClientEditor();
@@ -359,7 +425,7 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
                         </span>
                         <button
                           type="button"
-                          onClick={() => openClientEditor(clientGroup.clientId, total.currency)}
+                          onClick={() => openClientEditor(clientGroup, total.currency)}
                           className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
                         >
                           Mark billed
@@ -370,36 +436,68 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
                 )}
               </div>
 
-              {editingClientCurrency?.clientId === clientGroup.clientId && (
-                <div className="flex items-center gap-1.5 px-0.5">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={clientInvoiceDraft}
-                    onChange={(e) => setClientInvoiceDraft(e.currentTarget.value)}
-                    placeholder="Invoice ID (optional)"
-                    disabled={clientBusyKey === `${clientGroup.clientId}::${editingClientCurrency.currency}`}
-                    className="min-w-0 flex-1 rounded-lg border-0 bg-white px-2.5 py-1.5 text-xs text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleMarkClientBilled(clientGroup, editingClientCurrency.currency)}
-                    disabled={clientBusyKey === `${clientGroup.clientId}::${editingClientCurrency.currency}`}
-                    className="shrink-0 whitespace-nowrap rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-50"
-                  >
-                    Mark {editingClientCurrency.currency} billed
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeClientEditor}
-                    disabled={clientBusyKey === `${clientGroup.clientId}::${editingClientCurrency.currency}`}
-                    className="shrink-0 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600 disabled:opacity-50"
-                    aria-label="Cancel"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
+              {editingClientCurrency?.clientId === clientGroup.clientId &&
+                (() => {
+                  const currency = editingClientCurrency.currency;
+                  const busy = clientBusyKey === `${clientGroup.clientId}::${currency}`;
+                  const allKeys = unbilledKeysFor(clientGroup, currency);
+                  return (
+                    <div className="space-y-1.5 px-0.5">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>
+                          {selectedPeriods.size} of {allKeys.length} selected — check each week (or open a week to
+                          check individual days) to include or exclude it
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPeriods(new Set(allKeys))}
+                            disabled={busy}
+                            className="font-medium text-slate-500 transition-colors hover:text-slate-700 disabled:opacity-50"
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPeriods(new Set())}
+                            disabled={busy}
+                            className="font-medium text-slate-500 transition-colors hover:text-slate-700 disabled:opacity-50"
+                          >
+                            None
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={clientInvoiceDraft}
+                          onChange={(e) => setClientInvoiceDraft(e.currentTarget.value)}
+                          placeholder="Invoice ID (optional)"
+                          disabled={busy}
+                          className="min-w-0 flex-1 rounded-lg border-0 bg-white px-2.5 py-1.5 text-xs text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleMarkClientBilled(clientGroup, currency)}
+                          disabled={busy || selectedPeriods.size === 0}
+                          className="shrink-0 whitespace-nowrap rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-50"
+                        >
+                          Mark {selectedPeriods.size} billed
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeClientEditor}
+                          disabled={busy}
+                          className="shrink-0 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600 disabled:opacity-50"
+                          aria-label="Cancel"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               <div className="space-y-2">
                 {clientGroup.projects.map((group) => {
@@ -427,78 +525,292 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
                           const key = `${group.projectId}::${period.periodStartKey}`;
                           const isEditing = editingKey === key;
                           const isBusy = busyKey === key;
-                          return (
-                            <div key={key} className="flex flex-col gap-1 px-1 py-1">
-                              <button
-                                type="button"
-                                onClick={() => onOpenLog(project, period.periodStart)}
-                                className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-1.5 py-0.5 -mx-1.5 -my-0.5 text-left transition-colors hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                              >
-                                <span className="truncate text-xs text-slate-700">
-                                  {weekLabel(period.periodStart, now)}
-                                </span>
-                                <span className="shrink-0 text-right">
-                                  <span className="block text-xs tabular-nums text-slate-900">
-                                    {period.display}
-                                  </span>
-                                  {period.amount !== null && (
-                                    <span className="block text-xs tabular-nums text-slate-400">
-                                      {formatCurrency(period.amount, group.currency)}
-                                    </span>
-                                  )}
-                                </span>
-                              </button>
+                          const inClientEditScope =
+                            editingClientCurrency?.clientId === clientGroup.clientId &&
+                            editingClientCurrency.currency === group.currency;
+                          const selectionBusy =
+                            inClientEditScope && clientBusyKey === `${clientGroup.clientId}::${group.currency}`;
+                          const isExpanded = expandedPeriods.has(key);
 
-                              {project.rate !== null &&
-                                period.billed &&
-                                (isEditing ? (
-                                  <div className="flex items-center gap-1.5">
+                          // Weekly-interval periods have no `days` breakdown — a single
+                          // week-level checkbox/badge, exactly as before.
+                          if (!period.days) {
+                            const inSelectionScope = !period.billed && inClientEditScope;
+                            const isSelected = inSelectionScope && selectedPeriods.has(key);
+                            return (
+                              <div
+                                key={key}
+                                className={`flex flex-col gap-1 px-1 py-1 ${isSelected ? "rounded-lg bg-brand/5" : ""}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {inSelectionScope && (
                                     <input
-                                      type="text"
-                                      autoFocus
-                                      value={invoiceDraft}
-                                      onChange={(e) => setInvoiceDraft(e.currentTarget.value)}
-                                      placeholder="Invoice ID (optional)"
-                                      disabled={isBusy}
-                                      className="min-w-0 flex-1 rounded-lg border-0 bg-white px-2.5 py-1.5 text-xs text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => togglePeriodSelection(key)}
+                                      disabled={selectionBusy}
+                                      aria-label={`Include ${weekLabel(period.periodStart, now)} in this bulk mark`}
+                                      className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveBilled(project, period)}
-                                      disabled={isBusy}
-                                      className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-50"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={closeEditor}
-                                      disabled={isBusy}
-                                      className="shrink-0 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600 disabled:opacity-50"
-                                      aria-label="Cancel"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUnmarkBilled(project, period)}
-                                      disabled={isBusy}
-                                      className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-                                    >
-                                      Unmark
-                                    </button>
-                                  </div>
-                                ) : (
+                                  )}
                                   <button
                                     type="button"
-                                    onClick={() => openEditor(key, period)}
-                                    className="self-start rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                                    onClick={() => onOpenLog(project, period.periodStart)}
+                                    className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-1.5 py-0.5 -mx-1.5 -my-0.5 text-left transition-colors hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                                  >
+                                    <span className="truncate text-xs text-slate-700">
+                                      {weekLabel(period.periodStart, now)}
+                                    </span>
+                                    <span className="shrink-0 text-right">
+                                      <span className="block text-xs tabular-nums text-slate-900">
+                                        {period.display}
+                                      </span>
+                                      {period.amount !== null && (
+                                        <span className="block text-xs tabular-nums text-slate-400">
+                                          {formatCurrency(period.amount, group.currency)}
+                                        </span>
+                                      )}
+                                    </span>
+                                  </button>
+                                </div>
+
+                                {project.rate !== null &&
+                                  period.billed &&
+                                  (isEditing ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        value={invoiceDraft}
+                                        onChange={(e) => setInvoiceDraft(e.currentTarget.value)}
+                                        placeholder="Invoice ID (optional)"
+                                        disabled={isBusy}
+                                        className="min-w-0 flex-1 rounded-lg border-0 bg-white px-2.5 py-1.5 text-xs text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveBilled(project.id, period.periodStartKey)}
+                                        disabled={isBusy}
+                                        className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-50"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={closeEditor}
+                                        disabled={isBusy}
+                                        className="shrink-0 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600 disabled:opacity-50"
+                                        aria-label="Cancel"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUnmarkBilled(project.id, period.periodStartKey)}
+                                        disabled={isBusy}
+                                        className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                                      >
+                                        Unmark
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditor(key, period.invoiceId)}
+                                      className="self-start rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                                    >
+                                      <Badge colorScheme="success" className="py-0.5">
+                                        <Check size={12} /> Billed{period.invoiceId ? ` · ${period.invoiceId}` : ""}
+                                      </Badge>
+                                    </button>
+                                  ))}
+                              </div>
+                            );
+                          }
+
+                          // Hourly/daily-interval periods: a week-level row that expands
+                          // to individual, independently billable days.
+                          const days = period.days;
+                          const unbilledDayKeys = days
+                            .filter((d) => !d.billed)
+                            .map((d) => `${group.projectId}::${d.dayKey}`);
+                          const inSelectionScope = unbilledDayKeys.length > 0 && inClientEditScope;
+                          const selectedCount = unbilledDayKeys.filter((k) => selectedPeriods.has(k)).length;
+                          const allSelected = inSelectionScope && selectedCount === unbilledDayKeys.length;
+                          const someSelected = inSelectionScope && selectedCount > 0 && !allSelected;
+                          const billedDayCount = days.length - unbilledDayKeys.length;
+
+                          return (
+                            <div key={key} className="flex flex-col gap-1 px-1 py-1">
+                              <div className="flex items-center gap-2">
+                                {inSelectionScope && (
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    ref={(el) => {
+                                      if (el) el.indeterminate = someSelected;
+                                    }}
+                                    onChange={() =>
+                                      setSelectedPeriods((prev) => {
+                                        const next = new Set(prev);
+                                        if (allSelected) unbilledDayKeys.forEach((k) => next.delete(k));
+                                        else unbilledDayKeys.forEach((k) => next.add(k));
+                                        return next;
+                                      })
+                                    }
+                                    disabled={selectionBusy}
+                                    aria-label={`Include all unbilled days in ${weekLabel(period.periodStart, now)} in this bulk mark`}
+                                    className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpanded(key)}
+                                  aria-label={isExpanded ? "Collapse" : "Expand"}
+                                  aria-expanded={isExpanded}
+                                  className="shrink-0 rounded-full p-0.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
+                                >
+                                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenLog(project, period.periodStart)}
+                                  className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-1.5 py-0.5 -mx-1.5 -my-0.5 text-left transition-colors hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                                >
+                                  <span className="truncate text-xs text-slate-700">
+                                    {weekLabel(period.periodStart, now)}
+                                  </span>
+                                  <span className="shrink-0 text-right">
+                                    <span className="block text-xs tabular-nums text-slate-900">
+                                      {period.display}
+                                    </span>
+                                    {period.amount !== null && (
+                                      <span className="block text-xs tabular-nums text-slate-400">
+                                        {formatCurrency(period.amount, group.currency)}
+                                      </span>
+                                    )}
+                                  </span>
+                                </button>
+                              </div>
+
+                              {project.rate !== null &&
+                                (period.billed ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpanded(key)}
+                                    className="ml-6 self-start rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                                   >
                                     <Badge colorScheme="success" className="py-0.5">
                                       <Check size={12} /> Billed{period.invoiceId ? ` · ${period.invoiceId}` : ""}
                                     </Badge>
                                   </button>
+                                ) : (
+                                  billedDayCount > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleExpanded(key)}
+                                      className="ml-6 self-start text-xs text-slate-400 underline-offset-2 hover:underline"
+                                    >
+                                      {billedDayCount} of {days.length} days billed
+                                    </button>
+                                  )
                                 ))}
+
+                              {isExpanded && (
+                                <div className="ml-6 mt-1 space-y-1 border-l border-slate-200/80 pl-2">
+                                  {days.map((day) => {
+                                    const dayKeyFull = `${group.projectId}::${day.dayKey}`;
+                                    const dayIsEditing = editingKey === dayKeyFull;
+                                    const dayIsBusy = busyKey === dayKeyFull;
+                                    const daySelected = inClientEditScope && selectedPeriods.has(dayKeyFull);
+                                    return (
+                                      <div
+                                        key={dayKeyFull}
+                                        className={`flex flex-col gap-1 py-0.5 ${daySelected ? "rounded-lg bg-brand/5" : ""}`}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          {!day.billed && inClientEditScope && (
+                                            <input
+                                              type="checkbox"
+                                              checked={daySelected}
+                                              onChange={() => togglePeriodSelection(dayKeyFull)}
+                                              disabled={selectionBusy}
+                                              aria-label={`Include ${dayHeading(day.day)} in this bulk mark`}
+                                              className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                                            />
+                                          )}
+                                          <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-1.5 py-0.5">
+                                            <span className="truncate text-xs text-slate-500">
+                                              {dayHeading(day.day)}
+                                            </span>
+                                            <span className="shrink-0 text-right">
+                                              <span className="block text-xs tabular-nums text-slate-700">
+                                                {day.display}
+                                              </span>
+                                              {day.amount !== null && (
+                                                <span className="block text-xs tabular-nums text-slate-400">
+                                                  {formatCurrency(day.amount, group.currency)}
+                                                </span>
+                                              )}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {project.rate !== null &&
+                                          day.billed &&
+                                          (dayIsEditing ? (
+                                            <div className="flex items-center gap-1.5">
+                                              <input
+                                                type="text"
+                                                autoFocus
+                                                value={invoiceDraft}
+                                                onChange={(e) => setInvoiceDraft(e.currentTarget.value)}
+                                                placeholder="Invoice ID (optional)"
+                                                disabled={dayIsBusy}
+                                                className="min-w-0 flex-1 rounded-lg border-0 bg-white px-2.5 py-1.5 text-xs text-slate-900 ring-1 ring-inset ring-slate-200/70 transition-all placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => handleSaveBilled(project.id, day.dayKey)}
+                                                disabled={dayIsBusy}
+                                                className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-50"
+                                              >
+                                                Save
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={closeEditor}
+                                                disabled={dayIsBusy}
+                                                className="shrink-0 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-600 disabled:opacity-50"
+                                                aria-label="Cancel"
+                                              >
+                                                <X size={14} />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleUnmarkBilled(project.id, day.dayKey)}
+                                                disabled={dayIsBusy}
+                                                className="shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                                              >
+                                                Unmark
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => openEditor(dayKeyFull, day.invoiceId)}
+                                              className="self-start rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                                            >
+                                              <Badge colorScheme="success" className="py-0.5">
+                                                <Check size={12} /> Billed{day.invoiceId ? ` · ${day.invoiceId}` : ""}
+                                              </Badge>
+                                            </button>
+                                          ))}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
