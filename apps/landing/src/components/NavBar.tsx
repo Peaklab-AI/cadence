@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { NavBar as PlNavBar } from "@peaklab/ui";
+import { useAppNavigate } from "../lib/nav";
 import { CadenceMark } from "./icons";
 import styles from "./NavBar.module.css";
 
@@ -7,10 +9,6 @@ const GITHUB_URL = "https://github.com/Peaklab-AI/cadence";
 
 const SPIN_MAX_DEG_PER_MS = 360 / 700;
 const SPIN_RAMP_MS = 220;
-
-function scrollToId(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
 
 /**
  * Drives the logo mark's rotation via rAF instead of a CSS animation so hover
@@ -69,16 +67,23 @@ function useSpinOnHover(markRef: React.RefObject<HTMLElement | null>) {
 }
 
 /**
- * Floating NavBar for a single-page site — no react-router, unlike agency's
- * SiteNavBar. `onNavigate` branches on the clicked label directly and either
- * scrolls to a section or opens the GitHub repo. Reserves `--site-nav-height`
- * via ResizeObserver so Hero can clear the fixed bar without a hardcoded
- * offset, same pattern as agency's SiteNavBar.tsx.
+ * Floating NavBar. `onNavigate` branches on the clicked label: PlNavBar
+ * already wraps `logo` in its own `<a href="#">` and fires "home" on click
+ * (see peaklab-ui's NavBar.tsx) — wrapping `logo` in a second RouterLink
+ * here would nest two <a> tags, which is invalid HTML and breaks React's
+ * reconciliation of the whole nav (intermittent click failures). In-page
+ * anchors (Features/FAQ/Install) go through `useAppNavigate` so they work
+ * from any route (navigate home first, then scroll, if not already on "/"),
+ * "Articles" routes to /articles, and "GitHub" opens the repo. Reserves
+ * `--site-nav-height` via ResizeObserver so Hero can clear the fixed bar
+ * without a hardcoded offset, same pattern as agency's SiteNavBar.tsx.
  */
 export function NavBar() {
   const headerRef = useRef<HTMLElement>(null);
   const markRef = useRef<HTMLSpanElement>(null);
   const spinHandlers = useSpinOnHover(markRef);
+  const goTo = useAppNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const header = headerRef.current;
@@ -103,15 +108,18 @@ export function NavBar() {
           Cadence
         </span>
       }
-      items={["Features", "FAQ", "Install"]}
+      items={["Features", "FAQ", "Articles", "Install"]}
+      active={location.pathname.startsWith("/articles") ? "Articles" : undefined}
       ctaLabel="Install"
       ctaTarget="Install"
       secondaryLabel="GitHub"
       secondaryTarget="GitHub"
       onNavigate={(target) => {
-        if (target === "Features") scrollToId("features");
-        else if (target === "FAQ") scrollToId("faq");
-        else if (target === "Install") scrollToId("install");
+        if (target === "home") goTo("/");
+        else if (target === "Features") goTo("/#features");
+        else if (target === "FAQ") goTo("/#faq");
+        else if (target === "Install") goTo("/#install");
+        else if (target === "Articles") goTo("/articles");
         else if (target === "GitHub") window.open(GITHUB_URL, "_blank", "noopener");
       }}
     />

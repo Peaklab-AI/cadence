@@ -1,0 +1,23 @@
+.page {
+  padding: var(--plu-section-y-tight) var(--plu-gutter) 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--plu-card-gap);
+  margin-top: var(--plu-space-10);
+  margin-bottom: var(--plu-space-12);
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,107 @@
+.page {
+  padding: var(--plu-section-y-tight) var(--plu-gutter) 0;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--plu-space-12);
+  font-size: var(--plu-size-body-lg);
+  color: var(--plu-text-tertiary);
+  text-decoration: none;
+  transition: var(--plu-transition-control);
+}
+
+.backLink:hover {
+  color: var(--plu-text-accent);
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--plu-space-12);
+}
+
+.metaBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--plu-size-caption);
+  color: var(--plu-text-tertiary);
+}
+
+.title {
+  margin: 0 0 20px;
+  font-size: var(--plu-size-h1);
+  font-weight: var(--plu-weight-bold);
+  letter-spacing: var(--plu-tracking-display);
+  line-height: 1.15;
+  color: var(--plu-text-primary);
+  text-wrap: balance;
+}
+
+.summary {
+  margin: 0 0 24px;
+  font-size: var(--plu-size-body-lg);
+  line-height: var(--plu-leading-relaxed);
+  color: var(--plu-text-secondary);
+  text-wrap: pretty;
+}
+
+.footer {
+  margin-top: 80px;
+}
+
+/* Typography for the bare h2/p/ul/li/strong tags each article body
+   component renders (src/content/articles/*.tsx) — one shared stylesheet
+   here rather than repeating it per article. */
+.body p {
+  margin: 0 0 24px;
+  font-size: var(--plu-size-body-lg);
+  line-height: var(--plu-leading-relaxed);
+  color: var(--plu-text-secondary);
+}
+
+.body > h2 {
+  margin: 56px 0 20px;
+  font-size: var(--plu-size-h2);
+  font-weight: var(--plu-weight-bold);
+  letter-spacing: var(--plu-tracking-heading);
+  line-height: 1.25;
+  color: var(--plu-text-primary);
+}
+
+.body > h3 {
+  margin: 40px 0 16px;
+  font-size: var(--plu-size-h3);
+  font-weight: var(--plu-weight-semibold);
+  letter-spacing: var(--plu-tracking-heading);
+  color: var(--plu-text-primary);
+}
+
+.body strong {
+  color: var(--plu-text-primary);
+  font-weight: var(--plu-weight-semibold);
+}
+
+.body ul,
+.body ol {
+  margin: 0 0 24px;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.body li {
+  font-size: var(--plu-size-body-lg);
+  line-height: var(--plu-leading-relaxed);
+  color: var(--plu-text-secondary);
+}
+
+.body a {
+  color: var(--plu-text-accent);
+}

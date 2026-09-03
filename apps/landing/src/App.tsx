@@ -1,26 +1,21 @@
+import { Navigate, Route, Routes } from "react-router-dom";
 import styles from "./App.module.css";
 import { NavBar } from "./components/NavBar";
-import { Hero } from "./components/Hero";
-import { ProofPoints } from "./components/ProofPoints";
-import { Features } from "./components/Features";
-import { FAQ } from "./components/FAQ";
-import { ClosingCTA } from "./components/ClosingCTA";
 import { Footer } from "./components/Footer";
+import { Home } from "./pages/Home";
+import { Articles } from "./pages/Articles";
+import { ArticleDetail } from "./pages/ArticleDetail";
 
-/**
- * Section backgrounds alternate per DESIGN.md §6's convention:
- * page (Hero/ProofPoints) -> mint-wash (Features) -> page (FAQ) ->
- * gradient-brand (ClosingCTA) -> page (Footer).
- */
 export function App() {
   return (
     <div className={styles.page}>
       <NavBar />
-      <Hero />
-      <ProofPoints />
-      <Features />
-      <FAQ />
-      <ClosingCTA />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/articles" element={<Articles />} />
+        <Route path="/articles/:slug" element={<ArticleDetail />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
       <Footer />
     </div>
   );
