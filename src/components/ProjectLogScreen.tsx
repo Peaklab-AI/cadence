@@ -5,10 +5,12 @@ import {
   billedPeriodKeyFor,
   buildTimeLogCsv,
   formatDuration,
+  isInNzDateRange,
   weekEnd,
   weekStart,
   weekLabel,
 } from "../lib/history";
+import { NZ_TIME_ZONE } from "../lib/nzTime";
 import { toErrorMessage } from "../lib/errors";
 import type { BilledPeriod, Project, TimeEntry } from "../types";
 import { Badge } from "./ui/Badge";
@@ -22,11 +24,11 @@ interface Props {
 }
 
 function logDate(date: Date): string {
-  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: NZ_TIME_ZONE });
 }
 
 function logTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: NZ_TIME_ZONE });
 }
 
 export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: Props) {
@@ -72,20 +74,14 @@ export function ProjectLogScreen({ project, anchor, onEditEntry, onAddEntry }: P
   const closedEntries =
     entries
       ?.filter((e) => e.projectId === project.id && e.endedAt)
-      .filter((e) => {
-        const started = new Date(e.startedAt);
-        return started >= start && started < end;
-      })
+      .filter((e) => isInNzDateRange(new Date(e.startedAt), start, end))
       .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()) ?? [];
 
   async function handleExport() {
     if (!entries) return;
     setExportError(null);
     try {
-      const inPeriod = entries.filter((e) => {
-        const started = new Date(e.startedAt);
-        return started >= start && started < end;
-      });
+      const inPeriod = entries.filter((e) => isInNzDateRange(new Date(e.startedAt), start, end));
       const csv = buildTimeLogCsv(inPeriod, project, billedPeriods ?? []);
       const filename = `${project.name} — ${weekLabel(anchor, now)}.csv`;
       const path = await saveTextFile(filename, csv);

@@ -1,8 +1,9 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatCurrency } from "./currency";
-import { formatDuration } from "./history";
+import { addDays, formatDuration } from "./history";
 import type { ReportSection } from "./history";
+import { NZ_TIME_ZONE } from "./nzTime";
 
 const FOOTER_TEXT = "Generated using https://cadence.peaklab.ai";
 const FOOTER_URL = "https://cadence.peaklab.ai";
@@ -22,7 +23,7 @@ const LOGO_MAX_WIDTH = 125;
 const LOGO_RENDER_SCALE = 3;
 
 function formatReportDate(date: Date): string {
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: NZ_TIME_ZONE });
 }
 
 interface PreparedLogo {
@@ -96,7 +97,11 @@ export async function buildTimeLogPdf(
   doc.setFontSize(10);
   doc.setTextColor(100);
   const dateY = headerY + 18;
-  const rangeEnd = new Date(range.end.getTime() - 1);
+  // `range.end` is an exclusive NZ calendar-day marker (see weekEnd/
+  // buildReportRows), so the last included day is one calendar day earlier
+  // — not one millisecond earlier, which could land back on the same NZ day
+  // this marker encodes (see nzCalendarMarker's doc comment).
+  const rangeEnd = addDays(range.end, -1);
   doc.text(`${formatReportDate(range.start)} – ${formatReportDate(rangeEnd)}`, pageWidth - margin, dateY, {
     align: "right",
   });

@@ -22,7 +22,7 @@ import { TimeEntryForm } from "./components/TimeEntryForm";
 import { Button } from "./components/ui/Button";
 import { cancelLeaveTrackingOff, confirmLeaveTrackingOff, pauseTracking, startTracking } from "./lib/tauriCommands";
 import { toErrorMessage } from "./lib/errors";
-import { weekEnd, weekStart } from "./lib/history";
+import { isInNzDateRange, weekEnd, weekStart } from "./lib/history";
 import type { Project, TimeEntry } from "./types";
 
 type Screen =
@@ -87,7 +87,7 @@ const HEADER_GAP = 16;
 function clampDateToPeriod(now: Date, anchor: Date): Date {
   const start = weekStart(anchor);
   const end = weekEnd(anchor);
-  return now >= start && now < end ? now : start;
+  return isInNzDateRange(now, start, end) ? now : start;
 }
 
 function MainView() {

@@ -4,6 +4,7 @@ import type { Client, Project, TimeEntry } from "../types";
 import { addManualTimeEntry, deleteTimeEntry, listTimeEntries, updateTimeEntry } from "../lib/tauriCommands";
 import { toErrorMessage } from "../lib/errors";
 import { INTERVAL_BADGE_META } from "../lib/intervalMeta";
+import { nzParts, nzWallClockToInstant } from "../lib/nzTime";
 import { Select } from "./ui/Select";
 import { FieldLabel } from "./ui/FieldLabel";
 import { Button } from "./ui/Button";
@@ -19,22 +20,25 @@ interface Props {
 }
 
 function toDateInputValue(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const { year, month, day } = nzParts(date);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function toTimeInputValue(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const { hour, minute } = nzParts(date);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
-/** Combines a `YYYY-MM-DD` + `HH:MM` pair (both in local time, as native
- * date/time inputs work in) into an RFC3339 UTC string, matching what Rust
- * writes for every other entry. */
+/** Combines a `YYYY-MM-DD` + `HH:MM` pair — both NZ wall-clock time, since
+ * Cadence always bills against NZ time regardless of the device's own
+ * timezone — into an RFC3339 UTC string, matching what Rust writes for
+ * every other entry. */
 function combineToIso(dateStr: string, timeStr: string): string | null {
   if (!dateStr || !timeStr) return null;
   const [y, m, d] = dateStr.split("-").map(Number);
   const [hh, mi] = timeStr.split(":").map(Number);
   if ([y, m, d, hh, mi].some((n) => Number.isNaN(n))) return null;
-  return new Date(y, m - 1, d, hh, mi, 0, 0).toISOString();
+  return nzWallClockToInstant(y, m, d, hh, mi).toISOString();
 }
 
 export function TimeEntryForm({ entry, projects, clients, defaultProjectId, defaultDate, onDone }: Props) {

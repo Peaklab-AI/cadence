@@ -9,7 +9,9 @@ import {
   unmarkPeriodBilled,
 } from "../lib/tauriCommands";
 import {
+  addDays,
   weekLabel,
+  isoDateKey,
   summarizeAllHistory,
   summarizeUnbilledTotal,
   hideBilledPeriods,
@@ -17,6 +19,7 @@ import {
   buildReportRows,
   type ClientHistory,
 } from "../lib/history";
+import { NZ_TIME_ZONE, nzParts } from "../lib/nzTime";
 import { buildTimeLogPdf } from "../lib/pdfReport";
 import type { ReportSettings } from "../types";
 import { formatCurrency } from "../lib/currency";
@@ -26,21 +29,19 @@ import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { Switch } from "./ui/Switch";
 
-function isoDateInput(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+const isoDateInput = isoDateKey;
 
-/** Parses a `type="date"` input's "YYYY-MM-DD" value as a local-midnight
- * Date, matching weekStart/weekEnd's local-time convention elsewhere in this
+/** Parses a `type="date"` input's "YYYY-MM-DD" value as an NZ calendar-day
+ * marker, matching weekStart/weekEnd's NZ-time convention elsewhere in this
  * file rather than `new Date(str)`'s UTC interpretation. */
 function parseDateInput(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 /** Short label for one day within an expanded week, e.g. "Mon, Sep 1". */
 function dayHeading(date: Date): string {
-  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: NZ_TIME_ZONE });
 }
 
 function sanitizeForFilename(name: string): string {
@@ -91,7 +92,10 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const now = new Date();
-  const [reportStart, setReportStart] = useState(() => isoDateInput(new Date(now.getFullYear(), now.getMonth(), 1)));
+  const [reportStart, setReportStart] = useState(() => {
+    const { year, month } = nzParts(now);
+    return isoDateInput(new Date(Date.UTC(year, month - 1, 1)));
+  });
   const [reportEnd, setReportEnd] = useState(() => isoDateInput(now));
   const [reportClientId, setReportClientId] = useState("");
   const [reportProjectId, setReportProjectId] = useState("");
@@ -264,7 +268,7 @@ export function HistoryPanel({ clients, projects, onOpenLog, showBilled, onShowB
     try {
       const start = parseDateInput(reportStart);
       const endInclusive = parseDateInput(reportEnd);
-      const end = new Date(endInclusive.getFullYear(), endInclusive.getMonth(), endInclusive.getDate() + 1);
+      const end = addDays(endInclusive, 1);
       const filter = { clientId: reportClientId || null, projectId: reportProjectId || null };
       const sections = buildReportRows(entries, projects, clients, billedPeriods ?? [], start, end, filter);
       const bytes = await buildTimeLogPdf(

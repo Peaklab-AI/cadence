@@ -14,6 +14,7 @@ import {
   buildTimeLogCsv,
   buildReportRows,
 } from "./history";
+import { nzWallClockToInstant } from "./nzTime";
 import type { BilledPeriod, Client, Project, TimeEntry } from "../types";
 
 function makeClient(overrides: Partial<Client> = {}): Client {
@@ -105,9 +106,9 @@ describe("isCurrentWeek", () => {
     expect(isCurrentWeek(new Date(2026, 6, 6), new Date(2026, 6, 13))).toBe(false);
   });
 
-  it("is false right at the Sunday-to-Monday boundary", () => {
-    const sundayNight = new Date(2026, 6, 12, 23, 59);
-    const nextMonday = new Date(2026, 6, 13, 0, 0);
+  it("is false right at the Sunday-to-Monday boundary, in NZ wall-clock time", () => {
+    const sundayNight = nzWallClockToInstant(2026, 7, 12, 23, 59);
+    const nextMonday = nzWallClockToInstant(2026, 7, 13, 0, 0);
     expect(isCurrentWeek(sundayNight, nextMonday)).toBe(false);
   });
 });
@@ -182,7 +183,7 @@ describe("summarizeAllHistory", () => {
     const projects = [makeProject({ id: "p2", interval: "daily", rate: null })];
     const entries = [
       makeEntry({ id: "e1", projectId: "p2", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
-      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T14:00:00", endedAt: "2026-07-06T15:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p2", startedAt: "2026-07-06T11:00:00", endedAt: "2026-07-06T12:00:00", durationSeconds: 3600 }),
       makeEntry({ id: "e3", projectId: "p2", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00", durationSeconds: 3600 }),
     ];
 
@@ -289,7 +290,7 @@ describe("summarizeAllHistory", () => {
     const entries = [
       // Monday: two sessions totalling 2h. Tuesday: 1h.
       makeEntry({ id: "e1", projectId: "p1", startedAt: "2026-07-06T09:00:00", endedAt: "2026-07-06T10:00:00", durationSeconds: 3600 }),
-      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-06T14:00:00", endedAt: "2026-07-06T15:00:00", durationSeconds: 3600 }),
+      makeEntry({ id: "e2", projectId: "p1", startedAt: "2026-07-06T11:00:00", endedAt: "2026-07-06T12:00:00", durationSeconds: 3600 }),
       makeEntry({ id: "e3", projectId: "p1", startedAt: "2026-07-07T09:00:00", endedAt: "2026-07-07T10:00:00", durationSeconds: 3600 }),
     ];
 

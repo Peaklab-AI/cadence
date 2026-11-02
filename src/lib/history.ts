@@ -1,4 +1,5 @@
 import type { BilledPeriod, Client, Interval, Project, TimeEntry } from "../types";
+import { NZ_TIME_ZONE, addCalendarDays, nzCalendarMarker, nzParts } from "./nzTime";
 
 /** One project's tracked time within a single calendar day — the finer
  * billing unit nested inside a week for hourly/daily-interval projects (see
@@ -66,21 +67,20 @@ export interface ClientHistory {
   unbilledTotals: ClientHistoryTotal[];
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
+export const addDays = addCalendarDays;
 
 function dayKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  const { year, month, day } = nzParts(date);
+  return `${year}-${month}-${day}`;
 }
 
-/** Start (Monday) of the calendar week containing `anchor`. */
+/** Start (Monday, NZ time) of the calendar week containing `anchor` — always
+ * anchored to NZ time regardless of the device's own timezone (see
+ * nzTime.ts), returned as a calendar marker (UTC midnight of that NZ day). */
 export function weekStart(anchor: Date): Date {
-  const day = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-  const daysSinceMonday = (day.getDay() + 6) % 7; // Monday = 0
-  day.setDate(day.getDate() - daysSinceMonday);
+  const day = nzCalendarMarker(anchor);
+  const daysSinceMonday = (day.getUTCDay() + 6) % 7; // Monday = 0
+  day.setUTCDate(day.getUTCDate() - daysSinceMonday);
   return day;
 }
 
@@ -89,8 +89,20 @@ export function weekEnd(anchor: Date): Date {
   return addDays(weekStart(anchor), 7);
 }
 
-function isoDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+export function isoDateKey(date: Date): string {
+  const { year, month, day } = nzParts(date);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** True when `entryDate` (an actual tracked-entry instant) falls within the
+ * NZ calendar-day range [start, end) — `start`/`end` are calendar markers
+ * such as those returned by `weekStart`/`weekEnd`. Compares NZ date-key
+ * strings rather than raw millisecond instants, since a calendar marker's
+ * encoding (UTC midnight) isn't a real NZ-midnight instant — see
+ * nzCalendarMarker's doc comment. */
+export function isInNzDateRange(entryDate: Date, start: Date, end: Date): boolean {
+  const key = isoDateKey(entryDate);
+  return key >= isoDateKey(start) && key < isoDateKey(end);
 }
 
 /** Canonical "which week" identity key — a zero-padded "YYYY-MM-DD" for that
@@ -123,12 +135,13 @@ export function weekLabel(anchor: Date, now: Date): string {
   const start = weekStart(anchor);
   if (isCurrentWeek(anchor, now)) return "This week";
   const end = addDays(start, 6);
-  const sameYear = start.getFullYear() === end.getFullYear();
-  const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: NZ_TIME_ZONE });
   const endStr = end.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: sameYear ? undefined : "numeric",
+    timeZone: NZ_TIME_ZONE,
   });
   return `${startStr} – ${endStr}`;
 }
@@ -230,7 +243,7 @@ function summarizePeriodDays(
       const billedRecord = billedByKey.get(`${project.id}::${dayKeyStr}`);
       const entryStart = new Date(dayEntries[0].startedAt);
       return {
-        day: new Date(entryStart.getFullYear(), entryStart.getMonth(), entryStart.getDate()),
+        day: nzCalendarMarker(entryStart),
         dayKey: dayKeyStr,
         display,
         billedQuantity,
@@ -420,7 +433,8 @@ export function hideBilledPeriods(groups: ProjectHistory[]): ProjectHistory[] {
 }
 
 function csvTime(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const { hour, minute } = nzParts(date);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 /** Quotes a free-text CSV cell, escaping embedded quotes, since notes may
@@ -531,10 +545,7 @@ export function buildReportRows(
   for (const project of projectsInScope) {
     const closed = entries
       .filter((e) => e.projectId === project.id && e.endedAt)
-      .filter((e) => {
-        const started = new Date(e.startedAt);
-        return started >= start && started < end;
-      })
+      .filter((e) => isInNzDateRange(new Date(e.startedAt), start, end))
       .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
     if (closed.length === 0) continue;
